@@ -16,6 +16,32 @@ import Downloader from "../components/Downloader.tsx";
       <Downloader client:load />
     </main>
     <footer>
+      <p class="credit">
+        <a
+          href="https://www.instagram.com/manu_astrofoto/"
+          target="_blank"
+          rel="noopener"
+          aria-label="Perfil de Instagram de @manu_astrofoto"
+        >
+          <svg
+            class="ig-icon"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="5" />
+            <circle cx="12" cy="12" r="4" />
+            <circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" />
+          </svg>
+          hecho por <strong>@manu_astrofoto</strong> 🔭
+        </a>
+      </p>
       <p>
         Datos: <a href="https://waps.cfa.harvard.edu/microobservatory/" target="_blank" rel="noopener">MicroObservatory @ Harvard CFA</a> · Filtrado: weather ≥ threshold + continuidad temporal · Darks: solo si existen en la fecha
       </p>
