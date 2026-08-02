@@ -1,0 +1,24 @@
+---
+import "../styles/global.css";
+import Downloader from "../components/Downloader.tsx";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Descargador de imágenes FITS de exoplanetas y Dark-C desde MicroObservatory" />
+    <title>MicroObservatory Downloader</title>
+  </head>
+  <body>
+    <main>
+      <Downloader client:load />
+    </main>
+    <footer>
+      <p>
+        Datos: <a href="https://waps.cfa.harvard.edu/microobservatory/" target="_blank" rel="noopener">MicroObservatory @ Harvard CFA</a> · Filtrado: weather ≥ threshold + continuidad temporal · Darks: solo si existen en la fecha
+      </p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# El adapter @astrojs/netlify ya publica las API routes de src/pages/api/
+# como Netlify Functions accesibles en /api/*. No hace falta redirect.
+[functions]
+  node_bundler = "esbuild"
