@@ -228,6 +228,53 @@ label.checkbox-warn .hint {
 }
 .targets-row select { min-width: 0; }
 
+/* Header con título + selector de idioma */
+.downloader-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.downloader-header h1 {
+  margin: 0;
+}
+
+/* Selector de idioma: dos botones ES | EN, el activo resaltado */
+.lang-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  background: var(--bg);
+}
+.lang-switcher button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  font: inherit;
+  font-weight: 500;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.lang-switcher button:hover {
+  color: var(--text);
+}
+.lang-switcher button.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+.lang-switcher .lang-sep {
+  color: var(--border);
+}
+
 .targets-refresh {
   width: 36px;
   display: inline-flex;

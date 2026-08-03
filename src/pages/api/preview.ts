@@ -28,6 +28,7 @@ import {
   type ImageRecord,
   type DiscardedRecord,
 } from "@/lib/filters";
+import { t, type Lang } from "@/lib/i18n";
 
 export const prerender = false;
 
@@ -40,6 +41,7 @@ type PreviewRequest = {
   badGapMid?: number;               // frontera small/medium gap (minutos)
   inclusiveWeather?: boolean;
   requireDarks?: boolean;
+  lang?: Lang;                      // idioma para los motivos de descarte
 };
 
 type DateGroup = {
@@ -109,6 +111,7 @@ export const POST: APIRoute = async ({ request }) => {
     typeof body.badGapMid === "number" && body.badGapMid >= 4 && body.badGapMid <= 30
       ? body.badGapMid
       : 10;
+  const lang: Lang = body.lang === "es" ? "es" : "en";       // default en
 
   let start: Date | null;
   let end: Date | null;
@@ -208,6 +211,7 @@ export const POST: APIRoute = async ({ request }) => {
     inclusiveWeather,
     badGapMid,
     weatherSensitive: true,
+    lang,
   });
 
   // 4. Fetch Dark-C.
@@ -252,7 +256,7 @@ export const POST: APIRoute = async ({ request }) => {
     for (const r of removed) {
       finalDiscarded.push({
         record: r,
-        reasons: ["sin darks disponibles en esta fecha"],
+        reasons: [t("reason.noDarks", lang)],
         gapPrev: null,
         gapNext: null,
       });

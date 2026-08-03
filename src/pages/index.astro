@@ -1,19 +1,23 @@
 ---
 import "../styles/global.css";
 import Downloader from "../components/Downloader.tsx";
+import { t, detectLangFromHeader, type Lang } from "../lib/i18n";
+
+const acceptLang = Astro.request.headers.get("accept-language");
+const lang: Lang = detectLangFromHeader(acceptLang);
 ---
 
 <!doctype html>
-<html lang="es">
+<html lang={lang}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="Descargador de imágenes FITS de exoplanetas y Dark-C desde MicroObservatory" />
-    <title>MicroObservatory Downloader</title>
+    <meta name="description" content={t("app.lead", lang)} />
+    <title>{t("app.title", lang)}</title>
   </head>
   <body>
     <main>
-      <Downloader client:load />
+      <Downloader client:load initialLang={lang} />
     </main>
     <footer>
       <p class="credit">
@@ -21,7 +25,7 @@ import Downloader from "../components/Downloader.tsx";
           href="https://www.instagram.com/manu_astrofoto/"
           target="_blank"
           rel="noopener"
-          aria-label="Perfil de Instagram de @manu_astrofoto"
+          aria-label={t("footer.igAria", lang)}
         >
           <svg
             class="ig-icon"
@@ -39,11 +43,13 @@ import Downloader from "../components/Downloader.tsx";
             <circle cx="12" cy="12" r="4" />
             <circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" />
           </svg>
-          hecho por <strong>@manu_astrofoto</strong> 🔭
+          {t("footer.credit", lang)} <strong>@manu_astrofoto</strong> 🔭
         </a>
       </p>
       <p>
-        Datos: <a href="https://waps.cfa.harvard.edu/microobservatory/" target="_blank" rel="noopener">MicroObservatory @ Harvard CFA</a> · Filtrado: weather ≥ threshold + continuidad temporal · Darks: solo si existen en la fecha
+        {t("footer.datasrc", lang, {
+          moLink: `<a href="https://waps.cfa.harvard.edu/microobservatory/" target="_blank" rel="noopener">${t("footer.moName", lang)}</a>`,
+        })}
       </p>
     </footer>
   </body>

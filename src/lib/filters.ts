@@ -11,7 +11,13 @@
  *   Darks (weather_sensitive=false):
  *     - ningún filtro adicional; basta con que existan en la fecha
  *     - los gaps > BAD_GAP_MID siguen marcando como malas
+ *
+ * i18n: si pasas `lang` en las options, los motivos de descarte se
+ * formatean con los diccionarios de `@/lib/i18n`. Si no, salen en
+ * inglés (default seguro para que el ZIP y la API sean estables).
  */
+
+import { t as i18n, type Lang } from "@/lib/i18n";
 
 export type ImageRecord = {
   short: string;       // nombre corto, ej. "Qatar-6260723030146"
@@ -66,6 +72,7 @@ export type ApplyGapFilterOptions = {
   badGapHigh?: number;           // default 30
   badGapMid?: number;            // default 10 (frontera small/medium gap)
   weatherSensitive?: boolean;    // default true
+  lang?: Lang;                   // idioma de los motivos de descarte
 };
 
 export function applyGapFilter(
@@ -79,6 +86,7 @@ export function applyGapFilter(
     badGapHigh = 30,
     badGapMid = 10,
     weatherSensitive = true,
+    lang = "en",
   } = opts;
 
   // Frontera entre "gap pequeño con vecino sospechoso" y "gap medio siempre malo".
@@ -138,8 +146,8 @@ export function applyGapFilter(
       if (weatherSensitive && !passesWeather(r.weather)) {
         reasons.push(
           inclusiveWeather
-            ? `weather ${r.weather}%<${threshold}%`
-            : `weather ${r.weather}%<=${threshold}%`,
+            ? i18n("reason.weather", lang, { value: r.weather, threshold })
+            : i18n("reason.weatherLeq", lang, { value: r.weather, threshold }),
         );
       }
 
@@ -157,17 +165,28 @@ export function applyGapFilter(
             !passesWeather(neighbor.weather)
           ) {
             reasons.push(
-              `gap ${label}=${gap.toFixed(1)}min (rango 4-${BAD_GAP_MID}) + vecino nuboso (${neighbor.weather}%)`,
+              i18n("reason.gapCloudy", lang, {
+                label,
+                gap: gap.toFixed(1),
+                min: badGapLow,
+                mid: BAD_GAP_MID,
+                neighbor: neighbor.weather,
+              }),
             );
           } else if (BAD_GAP_MID < gap && gap < badGapHigh!) {
             reasons.push(
-              `gap ${label}=${gap.toFixed(1)}min (rango ${BAD_GAP_MID}-${badGapHigh})`,
+              i18n("reason.gapMedium", lang, {
+                label,
+                gap: gap.toFixed(1),
+                mid: BAD_GAP_MID,
+                high: badGapHigh,
+              }),
             );
           }
         } else {
           if (BAD_GAP_MID < gap && gap < badGapHigh!) {
             reasons.push(
-              `gap ${label}=${gap.toFixed(1)}min (modo dark)`,
+              i18n("reason.gapDark", lang, { label, gap: gap.toFixed(1) }),
             );
           }
         }

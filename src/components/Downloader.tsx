@@ -4,6 +4,12 @@ import {
   toDDMMYYYY,
   type ImageRecord,
 } from "@/lib/filters";
+import {
+  t as i18n,
+  getStoredLang,
+  setStoredLang,
+  type Lang,
+} from "@/lib/i18n";
 
 // Importamos JSZip solo en el cliente (dentro del handler) para que el SSR
 // de Astro no intente evaluar el CJS de jszip (su entry usa `require()`).
@@ -79,12 +85,16 @@ function thresholdTier(t: number): "loose" | "mild" | "strict" | "extreme" {
   return "extreme";
 }
 
-function thresholdLabel(t: number): string {
-  if (t < 50) return "muy permisivo";
-  if (t < 75) return "permisivo";
-  if (t < 85) return "estándar";
-  if (t < 95) return "recomendado";
-  return "muy estricto";
+function thresholdLabelKey(t: number): string {
+  if (t < 50) return "threshold.veryPermissive";
+  if (t < 75) return "threshold.permissive";
+  if (t < 85) return "threshold.standard";
+  if (t < 95) return "threshold.recommended";
+  return "threshold.veryStrict";
+}
+
+function thresholdLabel(t: number, lang: Lang): string {
+  return i18n(thresholdLabelKey(t), lang);
 }
 
 // Tier cualitativo del umbral de gap entre frames (BAD_GAP_MID).
@@ -97,11 +107,15 @@ function gapTier(g: number): "strict" | "balanced" | "permissive" | "loose" {
   return "loose";
 }
 
-function gapLabel(g: number): string {
-  if (g <= 8) return "estricto (corta más)";
-  if (g <= 12) return "recomendado";
-  if (g <= 20) return "permisivo";
-  return "laxo (tolera pausas largas)";
+function gapLabelKey(g: number): string {
+  if (g <= 8) return "gap.strict";
+  if (g <= 12) return "gap.recommended";
+  if (g <= 20) return "gap.permissive";
+  return "gap.loose";
+}
+
+function gapLabel(g: number, lang: Lang): string {
+  return i18n(gapLabelKey(g), lang);
 }
 
 async function fetchPreview(body: object): Promise<PreviewResponse> {
@@ -123,7 +137,35 @@ async function downloadFits(file: string): Promise<Blob> {
   return r.blob();
 }
 
-export default function Downloader() {
+type DownloaderProps = {
+  /**
+   * Idioma detectado en el servidor (Accept-Language) y pasado a la isla
+   * para evitar un flash de español/inglés en el primer render.
+   * El cliente luego puede sobrescribirlo si hay una preferencia en
+   * localStorage o si el usuario cambia el idioma manualmente.
+   */
+  initialLang?: Lang;
+};
+
+export default function Downloader({ initialLang }: DownloaderProps = {}) {
+  // Prioridad: localStorage > initialLang (SSR) > navigator.language
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (typeof window === "undefined") {
+      return initialLang ?? "en";
+    }
+    return getStoredLang() ?? initialLang ?? "en";
+  });
+
+  // Cuando cambia lang, persistirlo y reflejarlo en <html lang="...">
+  useEffect(() => {
+    setStoredLang(lang);
+    document.documentElement.lang = lang;
+  }, [lang]);
+
+  function setLang(next: Lang) {
+    setLangState(next);
+  }
+
   const [target, setTarget] = useState("Qatar-6");
   const [date, setDate] = useState("");
   const [threshold, setThreshold] = useState(85);
@@ -334,7 +376,7 @@ export default function Downloader() {
   // Paso 2: preview
   const handlePreview = async () => {
     if (!telescope) {
-      setErrMsg("Selecciona un telescopio");
+      setErrMsg(i18n("error.noTelescope", lang));
       return;
     }
     setLoading(true);
@@ -350,6 +392,7 @@ export default function Downloader() {
         filter,
         inclusiveWeather: true,
         requireDarks,
+        lang,
       });
       setPreview(data);
     } catch (e) {
@@ -372,7 +415,7 @@ export default function Downloader() {
       }
     }
     if (allFiles.length === 0) {
-      setErrMsg("No hay archivos para descargar");
+      setErrMsg(i18n("error.noFiles", lang));
       return;
     }
 
@@ -440,41 +483,64 @@ export default function Downloader() {
 
   return (
     <div className="downloader">
-      <h1>MicroObservatory Downloader</h1>
-      <p className="lead">
-        Descarga imágenes FITS de exoplanetas y Dark-C de calibración desde
-        MicroObservatory (Harvard CFA), con filtros de weather y continuidad
-        temporal.
-      </p>
+      <div className="downloader-header">
+        <h1>{i18n("app.title", lang)}</h1>
+        <div
+          className="lang-switcher"
+          role="group"
+          aria-label={i18n("app.lang.label", lang)}
+        >
+          <button
+            type="button"
+            className={lang === "es" ? "active" : ""}
+            onClick={() => setLang("es")}
+            aria-pressed={lang === "es"}
+            title="Español"
+          >
+            ES
+          </button>
+          <span className="lang-sep">|</span>
+          <button
+            type="button"
+            className={lang === "en" ? "active" : ""}
+            onClick={() => setLang("en")}
+            aria-pressed={lang === "en"}
+            title="English"
+          >
+            EN
+          </button>
+        </div>
+      </div>
+      <p className="lead">{i18n("app.lead", lang)}</p>
 
       <fieldset disabled={progress.phase === "downloading" || progress.phase === "zipping"}>
         <div className="row">
           <label className="targets-field">
             <span>
-              Exoplaneta{" "}
+              {i18n("field.exoplanet", lang)}{" "}
               {targetsState === "live" ? (
-                <small className="source-tag source-live">live</small>
+                <small className="source-tag source-live">{i18n("status.live", lang)}</small>
               ) : targetsState === "error" ? (
-                <small className="source-tag source-fallback">error</small>
+                <small className="source-tag source-fallback">{i18n("status.error", lang)}</small>
               ) : (
-                <small className="source-tag source-loading">cargando…</small>
+                <small className="source-tag source-loading">{i18n("status.loading", lang)}</small>
               )}
             </span>
             {targets.length === 0 ? (
               <div className="targets-empty">
                 {targetsState === "error" ? (
                   <>
-                    <span>No se pudo cargar la lista desde MicroObservatory.</span>
+                    <span>{i18n("targets.errorLoad", lang)}</span>
                     <button
                       type="button"
                       className="targets-retry"
                       onClick={handleTargetsRefresh}
                     >
-                      Reintentar
+                      {i18n("targets.retry", lang)}
                     </button>
                   </>
                 ) : (
-                  <span>⟳ Cargando targets desde MO…</span>
+                  <span>{i18n("targets.loadingMsg", lang)}</span>
                 )}
               </div>
             ) : (
@@ -495,8 +561,8 @@ export default function Downloader() {
                   className="targets-refresh"
                   onClick={handleTargetsRefresh}
                   disabled={targetsState === "loading"}
-                  aria-label="Refrescar lista de targets"
-                  title="Refrescar lista (también se actualiza cada 60 s)"
+                  aria-label={i18n("targets.refreshAria", lang)}
+                  title={i18n("targets.refreshTitle", lang)}
                 >
                   ⟳
                 </button>
@@ -504,13 +570,15 @@ export default function Downloader() {
             )}
             {lastUpdate && targetsState === "live" ? (
               <small className="last-update">
-                Actualizado a las {lastUpdate.toLocaleTimeString()}
+                {i18n("targets.lastUpdate", lang, {
+                  time: lastUpdate.toLocaleTimeString(),
+                })}
               </small>
             ) : null}
           </label>
 
           <label className="date-range">
-            <span>Rango de fechas</span>
+            <span>{i18n("field.dateRange", lang)}</span>
             <div className="date-range-row">
               <div className="date-field">
                 <div className="date-row">
@@ -518,9 +586,9 @@ export default function Downloader() {
                     type="text"
                     value={dateStart}
                     onChange={(e) => setDateStart(e.target.value)}
-                    placeholder="Inicio (DD-MM-YYYY)"
+                    placeholder={i18n("field.dateStart", lang)}
                     className="date-text"
-                    aria-label="Fecha de inicio"
+                    aria-label={i18n("field.dateStart", lang)}
                   />
                   <input
                     type="date"
@@ -539,8 +607,8 @@ export default function Downloader() {
                     type="button"
                     className="date-icon"
                     onClick={() => openDatePicker(dateStartRef)}
-                    aria-label="Calendario de inicio"
-                    title="Seleccionar fecha de inicio"
+                    aria-label={i18n("field.dateStart", lang)}
+                    title={i18n("field.dateStart", lang)}
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -567,9 +635,9 @@ export default function Downloader() {
                     type="text"
                     value={dateEnd}
                     onChange={(e) => setDateEnd(e.target.value)}
-                    placeholder="Fin (DD-MM-YYYY)"
+                    placeholder={i18n("field.dateEnd", lang)}
                     className="date-text"
-                    aria-label="Fecha de fin"
+                    aria-label={i18n("field.dateEnd", lang)}
                   />
                   <input
                     type="date"
@@ -588,8 +656,8 @@ export default function Downloader() {
                     type="button"
                     className="date-icon"
                     onClick={() => openDatePicker(dateEndRef)}
-                    aria-label="Calendario de fin"
-                    title="Seleccionar fecha de fin"
+                    aria-label={i18n("field.dateEnd", lang)}
+                    title={i18n("field.dateEnd", lang)}
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -612,13 +680,14 @@ export default function Downloader() {
               </div>
             </div>
             <small className="hint date-range-hint">
-              Deja un campo vacío para no aplicar ese límite.
+              {i18n("field.dateRangeHint", lang)}
             </small>
           </label>
 
           <label className="threshold">
             <span>
-              Umbral clear % (≥) — <span className="hint">recomendado 85</span>
+              {i18n("field.threshold", lang)}{" "}
+              <span className="hint">{i18n("field.thresholdRec", lang)}</span>
             </span>
             <div className="threshold-row">
               <input
@@ -628,7 +697,7 @@ export default function Downloader() {
                 step={1}
                 value={threshold}
                 onChange={(e) => setThreshold(parseInt(e.target.value, 10))}
-                aria-label="Umbral de cielo despejado"
+                aria-label={i18n("field.threshold", lang)}
                 className="threshold-slider"
               />
               <div
@@ -636,7 +705,7 @@ export default function Downloader() {
                 aria-live="polite"
               >
                 <strong>{threshold}%</strong>
-                <small>{thresholdLabel(threshold)}</small>
+                <small>{thresholdLabel(threshold, lang)}</small>
               </div>
             </div>
 
@@ -644,8 +713,8 @@ export default function Downloader() {
 
           <label className="gap">
             <span>
-              Gap máximo entre frames —{" "}
-              <span className="hint">recomendado 10 min</span>
+              {i18n("field.gap", lang)}{" "}
+              <span className="hint">{i18n("field.gapRec", lang)}</span>
             </span>
             <div className="gap-row">
               <input
@@ -655,7 +724,7 @@ export default function Downloader() {
                 step={1}
                 value={badGapMid}
                 onChange={(e) => setBadGapMid(parseInt(e.target.value, 10))}
-                aria-label="Gap máximo permitido entre frames consecutivos"
+                aria-label={i18n("field.gap", lang)}
                 className="gap-slider"
               />
               <div
@@ -663,32 +732,35 @@ export default function Downloader() {
                 aria-live="polite"
               >
                 <strong>{badGapMid} min</strong>
-                <small>{gapLabel(badGapMid)}</small>
+                <small>{gapLabel(badGapMid, lang)}</small>
               </div>
             </div>
             <small className="hint">
-              Gaps &gt; {badGapMid} min se descartan (suponen discontinuidad
-              operativa). ≥ 30 min cuenta como corte de sesión.
+              {i18n("field.gapHint", lang, { gap: badGapMid })}
             </small>
           </label>
 
           <label>
-            <span>Telescopio</span>
+            <span>{i18n("field.telescope", lang)}</span>
             {telescopes === null ? (
-              <input type="text" disabled value="cargando..." />
+              <input
+                type="text"
+                disabled
+                value={i18n("field.telescopeLoading", lang)}
+              />
             ) : telescopes.length === 0 ? (
               <input
                 type="text"
                 value={telescope}
                 onChange={(e) => setTelescope(e.target.value)}
-                placeholder="(sin telescopios para este target)"
+                placeholder={i18n("field.telescopeEmpty", lang)}
               />
             ) : (
               <select
                 value={telescope}
                 onChange={(e) => setTelescope(e.target.value)}
               >
-                <option value="">-- elige --</option>
+                <option value="">{i18n("field.telescopeChoose", lang)}</option>
                 {telescopes.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -699,24 +771,28 @@ export default function Downloader() {
           </label>
           <label>
             <span>
-              Filtro de captura —{" "}
-              <span className="hint">EXOTIC asume mismo filtro en toda la secuencia</span>
+              {i18n("field.captureFilter", lang)}{" "}
+              <span className="hint">{i18n("field.captureFilterHint", lang)}</span>
             </span>
             {filters === null ? (
-              <input type="text" disabled value="cargando..." />
+              <input
+                type="text"
+                disabled
+                value={i18n("field.telescopeLoading", lang)}
+              />
             ) : filters.length === 0 ? (
-              <input type="text" disabled value="(sin imágenes)" />
+              <input type="text" disabled value={i18n("field.filterEmpty", lang)} />
             ) : filters.length === 1 ? (
               <div className="filter-locked">
                 <code>{filters[0]}</code>
-                <small>único disponible para este telescopio</small>
+                <small>{i18n("field.filterLocked", lang)}</small>
               </div>
             ) : (
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               >
-                <option value="__auto__">auto (el más común)</option>
+                <option value="__auto__">{i18n("field.filterAuto", lang)}</option>
                 {filters.map((f) => (
                   <option key={f} value={f}>
                     {f}
@@ -732,11 +808,9 @@ export default function Downloader() {
               checked={!requireDarks}
               onChange={(e) => setRequireDarks(!e.target.checked)}
             />
-            <span>Permitir sin darks</span>
+            <span>{i18n("field.allowWithoutDarks", lang)}</span>
             <small className="hint">
-              Por defecto, EXOTIC exige darks de la misma fecha y telescopio.
-              Activa esta opción solo si tu sesión no tiene darks
-              disponibles: la curva de luz saldrá más ruidosa.
+              {i18n("field.allowWithoutDarksHint", lang)}
             </small>
           </label>
         </div>
@@ -747,7 +821,9 @@ export default function Downloader() {
             onClick={handlePreview}
             disabled={loading || !telescope}
           >
-            {loading ? "..." : "Previsualizar"}
+            {loading
+              ? i18n("action.loading", lang)
+              : i18n("action.preview", lang)}
           </button>
           {preview && (
             <button
@@ -760,7 +836,7 @@ export default function Downloader() {
               }
               className="primary"
             >
-              Descargar ZIP ({totalFiles} FITS)
+              {i18n("action.download", lang, { count: totalFiles })}
             </button>
           )}
         </div>
@@ -770,44 +846,45 @@ export default function Downloader() {
 
       {preview && (
         <div className="preview">
-          <h2>Resumen</h2>
+          <h2>{i18n("summary.title", lang)}</h2>
           <ul>
             <li>
-              <strong>Target:</strong> {preview.target} ({preview.telescope})
+              {i18n("summary.target", lang, {
+                target: preview.target,
+                telescope: preview.telescope,
+              })}
             </li>
             <li>
-              <strong>Rango:</strong> {preview.rangeLabel}
+              {i18n("summary.range", lang, { range: preview.rangeLabel })}
             </li>
             <li>
-              <strong>Filtro:</strong>{" "}
-              <code>{preview.usedFilter ?? "—"}</code>{" "}
+              {i18n("summary.filter", lang, { filter: preview.usedFilter ?? "—" })}{" "}
               {preview.filterAuto ? (
-                <em className="badge-auto">autodetect</em>
+                <em className="badge-auto">{i18n("summary.filterAuto", lang)}</em>
               ) : null}
             </li>
             <li>
-              <strong>Umbral clear:</strong> ≥ {preview.threshold}%
+              {i18n("summary.threshold", lang, { threshold: preview.threshold })}
             </li>
             <li>
-              <strong>Gap máximo entre frames:</strong> {preview.badGapMid} min
+              {i18n("summary.gap", lang, { gap: preview.badGapMid })}
             </li>
             <li>
-              <strong>Tránsito total analizado:</strong> {preview.transitTotal}
+              {i18n("summary.transitTotal", lang, { count: preview.transitTotal })}
             </li>
             <li>
-              <strong>Trántico que pasa filtros:</strong> {preview.transitKept}
+              {i18n("summary.transitKept", lang, { count: preview.transitKept })}
             </li>
             <li>
-              <strong>Dark-C del telescopio:</strong> {preview.darkCount} (en{" "}
-              {preview.darkByTelescope} fechas)
+              {i18n("summary.darks", lang, {
+                count: preview.darkCount,
+                dates: preview.darkByTelescope,
+              })}
             </li>
           </ul>
 
           {preview.transitByDate.length === 0 ? (
-            <p className="warn">
-              No hay fechas que cumplan los filtros. Prueba a relajar el umbral
-              o el rango de fechas.
-            </p>
+            <p className="warn">{i18n("summary.empty", lang)}</p>
           ) : (
             <table>
               <thead>
@@ -834,19 +911,21 @@ export default function Downloader() {
           {preview.transitDiscarded.length > 0 && (
             <details>
               <summary>
-                {preview.transitDiscarded.length} imágenes descartadas (primeras)
+                {i18n("discarded.title", lang, {
+                  count: preview.transitDiscarded.length,
+                })}
               </summary>
               <table className="discarded">
                 <thead>
                   <tr>
-                    <th>Fecha UT</th>
-                    <th>Clear%</th>
-                    <th>Gap prev</th>
-                    <th>Gap next</th>
-                    <th>Filtro</th>
-                    <th>Telescopio</th>
-                    <th>Short</th>
-                    <th>Motivos</th>
+                    <th>{i18n("discarded.headers.date", lang)}</th>
+                    <th>{i18n("discarded.headers.weather", lang)}</th>
+                    <th>{i18n("discarded.headers.gapPrev", lang)}</th>
+                    <th>{i18n("discarded.headers.gapNext", lang)}</th>
+                    <th>{i18n("discarded.headers.filter", lang)}</th>
+                    <th>{i18n("discarded.headers.telescope", lang)}</th>
+                    <th>{i18n("discarded.headers.short", lang)}</th>
+                    <th>{i18n("discarded.headers.reasons", lang)}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -876,26 +955,22 @@ export default function Downloader() {
           {preview.darkDebug && preview.darkDebug.byDate.length > 0 && (
             <details>
               <summary>
-                Darks disponibles ({preview.darkDebug.inRange} totales en
-                rango de {preview.darkDebug.totalParsed} parseados — telescopio
-                elegido: <code>{preview.darkDebug.selectedTelescope || "—"}</code>)
+                {i18n("darkDebug.title", lang, {
+                  inRange: preview.darkDebug.inRange,
+                  totalParsed: preview.darkDebug.totalParsed,
+                  telescope: preview.darkDebug.selectedTelescope || "—",
+                })}
               </summary>
-              <p className="hint">
-                Listado de Dark-C que existen en MO en tu rango de fechas. Las
-                filas marcadas con ✓ tienen al menos un dark del telescopio
-                elegido, así que se usarán para calibrar. Si una fecha muestra
-                darks de OTROS telescopios pero no del tuyo, no son usables
-                (mezclar scopes produce calibración incorrecta).
-              </p>
+              <p className="hint">{i18n("darkDebug.hint", lang)}</p>
               <table className="dark-debug">
                 <thead>
                   <tr>
-                    <th>Fecha</th>
-                    <th>#</th>
-                    <th>¿Tu scope?</th>
-                    <th>Telescopios</th>
-                    <th>Filtros</th>
-                    <th>Horas (UTC)</th>
+                    <th>{i18n("darkDebug.headers.date", lang)}</th>
+                    <th>{i18n("darkDebug.headers.count", lang)}</th>
+                    <th>{i18n("darkDebug.headers.match", lang)}</th>
+                    <th>{i18n("darkDebug.headers.telescopes", lang)}</th>
+                    <th>{i18n("darkDebug.headers.filters", lang)}</th>
+                    <th>{i18n("darkDebug.headers.times", lang)}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -939,16 +1014,21 @@ export default function Downloader() {
         <div className={`progress phase-${progress.phase}`}>
           {progress.phase === "downloading" && (
             <>
-              Descargando {progress.done}/{progress.total} — {progress.current}
+              {i18n("progress.downloading", lang, {
+                done: progress.done,
+                total: progress.total,
+                current: progress.current,
+              })}
               <progress
                 value={progress.done}
                 max={progress.total}
               />
             </>
           )}
-          {progress.phase === "zipping" && "Comprimiendo ZIP..."}
-          {progress.phase === "done" && "✅ ZIP descargado"}
-          {progress.phase === "error" && `❌ ${progress.errorMsg}`}
+          {progress.phase === "zipping" && i18n("progress.zipping", lang)}
+          {progress.phase === "done" && i18n("progress.done", lang)}
+          {progress.phase === "error" &&
+            i18n("progress.error", lang, { errorMsg: progress.errorMsg ?? "" })}
         </div>
       )}
     </div>
