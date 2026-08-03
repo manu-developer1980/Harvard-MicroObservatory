@@ -26,6 +26,7 @@ import {
   dateKey,
   toDDMMYYYY,
   type ImageRecord,
+  type DiscardedRecord,
 } from "@/lib/filters";
 
 export const prerender = false;
@@ -60,11 +61,22 @@ type PreviewResponse = {
   usedFilter?: string;             // filtro realmente usado (post-autodetect)
   filterAuto?: boolean;            // true si usedFilter fue autodetect
   transitByDate: DateGroup[];
-  transitDiscarded: Array<{ record: ImageRecord; reason: string }>;
+  transitDiscarded: DiscardedRecord[];
   darkCount: number;
   darkByTelescope: number;
   transitTotal: number;
   transitKept: number;
+  darkDebug?: {
+    totalParsed: number;           // todos los darks parseados (sin filtro de fecha)
+    inRange: number;               // darks dentro del rango solicitado
+    byDate: Array<{                // detalle por fecha en el rango
+      date: string;                // YYYYMMDD
+      count: number;
+      telescopes: string[];
+      filters: string[];
+      times: string[];             // HH:MM:SS de cada dark
+    }>;
+  };
 };
 
 function json(body: unknown, status = 200): Response {
@@ -196,17 +208,22 @@ export const POST: APIRoute = async ({ request }) => {
     weatherSensitive: true,
   });
 
-  // 4. Fetch Dark-C
+  // 4. Fetch Dark-C.
+  // IMPORTANTE: NO filtramos por telescopio ni por filtro de captura, solo
+  // por fecha. Razón: el script Python original (download_mo.py) hacía
+  // match solo por "mismo telescopio + misma fecha", y aun así fallaba en
+  // algunos casos porque MO rota telescopios entre observaciones. Si el
+  // usuario eligió un telescopio para el tránsito pero los darks de esa
+  // noche los tomó otro, descartar todos los darks es demasiado estricto.
+  // Por transparencia, el campo `darkDebug` lista los darks que SÍ existen
+  // en el rango, para que el usuario pueda verificar la calibración.
   const darkHtml = await fetchHtml({ target: "Dark-C-", sortRange: "500" });
-  let darkRows: ImageRecord[] = [];
+  let allDarkRows: ImageRecord[] = [];
   if (darkHtml && darkHtml !== "") {
-    darkRows = parseRows(darkHtml);
-    darkRows = filterByTelescope(darkRows, telescope);
-    darkRows = filterByDateRange(darkRows, { start, end });
-    // Los darks también son filter-dependent: aplicamos el mismo filtro
-    // que las imágenes de ciencia para mantener consistencia fotométrica.
-    darkRows = filterByCaptureFilter(darkRows, usedFilter);
+    allDarkRows = parseRows(darkHtml);
   }
+  // Subconjunto: solo los del rango consultado (lo que se usará de verdad)
+  const darkRows = filterByDateRange(allDarkRows, { start, end });
 
   // 5. Intersección de fechas (tránsito válido + darks existentes)
   const transitDates = new Set(kept.map((r) => dateKey(parseDt(r.datetime))));
@@ -220,14 +237,19 @@ export const POST: APIRoute = async ({ request }) => {
   const darkDates = new Set(darkByDateMap.keys());
 
   let finalKept = kept;
-  let finalDiscarded = [...discarded];
+  let finalDiscarded: DiscardedRecord[] = [...discarded];
   if (requireDarks) {
     finalKept = kept.filter((r) => darkDates.has(dateKey(parseDt(r.datetime))));
     const removed = kept.filter(
       (r) => !darkDates.has(dateKey(parseDt(r.datetime))),
     );
     for (const r of removed) {
-      finalDiscarded.push({ record: r, reason: "sin darks disponibles en esta fecha" });
+      finalDiscarded.push({
+        record: r,
+        reasons: ["sin darks disponibles en esta fecha"],
+        gapPrev: null,
+        gapNext: null,
+      });
     }
   }
 
@@ -262,6 +284,43 @@ export const POST: APIRoute = async ({ request }) => {
     rangeLabel = `${label(start)} → ${label(end)}`;
   else rangeLabel = "(rango parcial)";
 
+  // Debug de darks: lista por fecha, con telescopios/filtros/horas presentes.
+  // Sirve para que el usuario vea qué hay realmente disponible y por qué
+  // un dark concreto podría no estar matcheando.
+  const darkByDateDebugMap = new Map<
+    string,
+    { telescopes: Set<string>; filters: Set<string>; times: string[] }
+  >();
+  for (const r of darkRows) {
+    const k = dateKey(parseDt(r.datetime));
+    let entry = darkByDateDebugMap.get(k);
+    if (!entry) {
+      entry = { telescopes: new Set(), filters: new Set(), times: [] };
+      darkByDateDebugMap.set(k, entry);
+    }
+    if (r.telescope) entry.telescopes.add(r.telescope);
+    if (r.filter) entry.filters.add(r.filter);
+    const t = parseDt(r.datetime);
+    entry.times.push(
+      `${String(t.getUTCHours()).padStart(2, "0")}:${String(
+        t.getUTCMinutes(),
+      ).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`,
+    );
+  }
+  const darkDebug = {
+    totalParsed: allDarkRows.length,
+    inRange: darkRows.length,
+    byDate: Array.from(darkByDateDebugMap.entries())
+      .map(([date, e]) => ({
+        date,
+        count: e.times.length,
+        telescopes: Array.from(e.telescopes).sort(),
+        filters: Array.from(e.filters).sort(),
+        times: e.times.sort(),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  };
+
   return json({
     ok: true,
     target,
@@ -277,5 +336,6 @@ export const POST: APIRoute = async ({ request }) => {
     darkByTelescope: darkByDateMap.size,
     transitTotal: transitRows.length,
     transitKept: finalKept.length,
+    darkDebug,
   } satisfies PreviewResponse);
 };

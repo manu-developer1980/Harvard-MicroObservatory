@@ -31,11 +31,27 @@ type PreviewResponse = {
   usedFilter?: string;
   filterAuto?: boolean;
   transitByDate: DateGroup[];
-  transitDiscarded: Array<{ record: ImageRecord; reason: string }>;
+  transitDiscarded: Array<{
+    record: ImageRecord;
+    reasons: string[];
+    gapPrev: number | null;
+    gapNext: number | null;
+  }>;
   darkCount: number;
   darkByTelescope: number;
   transitTotal: number;
   transitKept: number;
+  darkDebug?: {
+    totalParsed: number;
+    inRange: number;
+    byDate: Array<{
+      date: string;
+      count: number;
+      telescopes: string[];
+      filters: string[];
+      times: string[];
+    }>;
+  };
 };
 
 type DownloadProgress = {
@@ -818,22 +834,78 @@ export default function Downloader() {
               <summary>
                 {preview.transitDiscarded.length} imágenes descartadas (primeras)
               </summary>
-              <table>
+              <table className="discarded">
                 <thead>
                   <tr>
                     <th>Fecha UT</th>
                     <th>Clear%</th>
+                    <th>Gap prev</th>
+                    <th>Gap next</th>
+                    <th>Filtro</th>
+                    <th>Telescopio</th>
                     <th>Short</th>
-                    <th>Motivo</th>
+                    <th>Motivos</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.transitDiscarded.map((d, i) => (
                     <tr key={i}>
-                      <td>{d.record.datetime}</td>
+                      <td><code>{d.record.datetime}</code></td>
                       <td>{d.record.weather}%</td>
-                      <td>{d.record.short}</td>
-                      <td>{d.reason}</td>
+                      <td>{d.gapPrev === null ? "—" : `${d.gapPrev.toFixed(1)}m`}</td>
+                      <td>{d.gapNext === null ? "—" : `${d.gapNext.toFixed(1)}m`}</td>
+                      <td><code>{d.record.filter || "—"}</code></td>
+                      <td><code>{d.record.telescope || "—"}</code></td>
+                      <td><code>{d.record.short}</code></td>
+                      <td>
+                        <ul className="reasons">
+                          {d.reasons.map((r, j) => (
+                            <li key={j}>{r}</li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+
+          {preview.darkDebug && preview.darkDebug.byDate.length > 0 && (
+            <details>
+              <summary>
+                Darks encontrados ({preview.darkDebug.inRange} en rango de{" "}
+                {preview.darkDebug.totalParsed} totales — agrupados por fecha)
+              </summary>
+              <p className="hint">
+                Listado completo de Dark-C parseados de MO. Si una fecha del
+                tránsito aparece aquí con telescopio y filtro, el dark debería
+                estar incluido en la descarga.
+              </p>
+              <table className="dark-debug">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>#</th>
+                    <th>Telescopios</th>
+                    <th>Filtros</th>
+                    <th>Horas (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.darkDebug.byDate.map((d) => (
+                    <tr key={d.date}>
+                      <td>{toDDMMYYYY(d.date)}</td>
+                      <td>{d.count}</td>
+                      <td>
+                        {d.telescopes.length === 0
+                          ? "—"
+                          : d.telescopes.join(", ")}
+                      </td>
+                      <td>
+                        {d.filters.length === 0 ? "—" : d.filters.join(", ")}
+                      </td>
+                      <td><code>{d.times.join(", ")}</code></td>
                     </tr>
                   ))}
                 </tbody>

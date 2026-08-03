@@ -714,6 +714,55 @@ details summary {
   margin-bottom: 0.5rem;
 }
 
+/* Tabla de imágenes descartadas: columnas estrechas, allow wrapping */
+table.discarded {
+  font-size: 0.78rem;
+  table-layout: auto;
+}
+table.discarded th,
+table.discarded td {
+  padding: 0.3rem 0.45rem;
+  vertical-align: top;
+  word-break: break-word;
+}
+table.discarded code {
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+table.discarded ul.reasons {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-dim);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.78rem;
+}
+table.discarded ul.reasons li {
+  margin: 0;
+  padding: 0.1rem 0;
+}
+table.discarded ul.reasons li::before {
+  content: "• ";
+  color: var(--err);
+  margin-right: 0.25rem;
+}
+
+/* Tabla de debug de darks */
+table.dark-debug {
+  font-size: 0.82rem;
+  table-layout: auto;
+}
+table.dark-debug th,
+table.dark-debug td {
+  padding: 0.35rem 0.55rem;
+  vertical-align: top;
+}
+table.dark-debug code {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
 .warn {
   color: var(--warn);
   background: rgba(251, 191, 36, 0.08);

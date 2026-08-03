@@ -25,7 +25,9 @@ export type ImageRecord = {
 
 export type DiscardedRecord = {
   record: ImageRecord;
-  reason: string;
+  reasons: string[];   // TODOS los motivos por los que no pasó
+  gapPrev: number | null;  // gap al vecino anterior (min), null si no tiene
+  gapNext: number | null;  // gap al vecino siguiente (min)
 };
 
 export type ApplyGapFilterResult = {
@@ -112,46 +114,70 @@ export function applyGapFilter(
     for (let i = 0; i < n; i++) {
       const r = sorted[i];
 
-      // Chequeo de weather: solo si la imagen es weather-sensitive
+      // Calculamos gaps a vecinos (los mostraremos aunque no fallen, para
+      // que la UI pueda enseñar la "forma" de la secuencia al usuario).
+      const prev = i > 0 ? sorted[i - 1] : undefined;
+      const next = i < n - 1 ? sorted[i + 1] : undefined;
+      const gapTo = (other: ImageRecord | undefined) =>
+        other
+          ? Math.abs(
+              (parseDt(r.datetime).getTime() -
+                parseDt(other.datetime).getTime()) /
+                60000,
+            )
+          : null;
+      const gapPrev = gapTo(prev);
+      const gapNext = gapTo(next);
+
+      // Acumulamos TODOS los motivos por los que esta imagen cae.
+      // Antes se hacía `continue` tras el primer fallo de weather, lo que
+      // ocultaba problemas adicionales de gap; ahora recogemos todos.
+      const reasons: string[] = [];
+
+      // 1) Chequeo de weather
       if (weatherSensitive && !passesWeather(r.weather)) {
-        discarded.push({
-          record: r,
-          reason: inclusiveWeather
-            ? `weather<${threshold}%`
-            : `weather<=${threshold}%`,
-        });
-        continue;
+        reasons.push(
+          inclusiveWeather
+            ? `weather ${r.weather}%<${threshold}%`
+            : `weather ${r.weather}%<=${threshold}%`,
+        );
       }
 
-      let bad = false;
-      let reason = "";
-
-      const checkNeighbor = (neighbor: ImageRecord | undefined) => {
-        if (!neighbor || bad) return;
-        const gap = (parseDt(r.datetime).getTime() -
-                     parseDt(neighbor.datetime).getTime()) / 60000;
+      // 2) Chequeo de gap a cada vecino
+      const checkNeighbor = (
+        neighbor: ImageRecord | undefined,
+        gap: number | null,
+        label: string,
+      ) => {
+        if (neighbor === undefined || gap === null) return;
         if (weatherSensitive) {
-          if (badGapLow! <= gap && gap <= BAD_GAP_MID && !passesWeather(neighbor.weather)) {
-            bad = true;
-            reason = `gap=${gap.toFixed(1)}min y vecino nuboso (${neighbor.weather}%)`;
+          if (
+            badGapLow! <= gap &&
+            gap <= BAD_GAP_MID &&
+            !passesWeather(neighbor.weather)
+          ) {
+            reasons.push(
+              `gap ${label}=${gap.toFixed(1)}min (rango 4-${BAD_GAP_MID}) + vecino nuboso (${neighbor.weather}%)`,
+            );
           } else if (BAD_GAP_MID < gap && gap < badGapHigh!) {
-            bad = true;
-            reason = `gap=${gap.toFixed(1)}min al vecino`;
+            reasons.push(
+              `gap ${label}=${gap.toFixed(1)}min (rango ${BAD_GAP_MID}-${badGapHigh})`,
+            );
           }
         } else {
-          // Modo dark: solo gaps BAD_GAP_MID..badGapHigh importan
           if (BAD_GAP_MID < gap && gap < badGapHigh!) {
-            bad = true;
-            reason = `gap=${gap.toFixed(1)}min al vecino`;
+            reasons.push(
+              `gap ${label}=${gap.toFixed(1)}min (modo dark)`,
+            );
           }
         }
       };
 
-      checkNeighbor(i > 0 ? sorted[i - 1] : undefined);
-      checkNeighbor(i < n - 1 ? sorted[i + 1] : undefined);
+      checkNeighbor(prev, gapPrev, "prev");
+      checkNeighbor(next, gapNext, "next");
 
-      if (bad) {
-        discarded.push({ record: r, reason });
+      if (reasons.length > 0) {
+        discarded.push({ record: r, reasons, gapPrev, gapNext });
       } else {
         kept.push(r);
       }
