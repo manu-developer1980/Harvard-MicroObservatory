@@ -4,12 +4,13 @@
  * Reglas:
  *   Tránsito (weather_sensitive=true):
  *     - weather < threshold  ->  descartar
- *     - gap 4-5 min + vecino nuboso  ->  descartar
- *     - gap 5-30 min  ->  descartar
+ *     - gap 4-10 min + vecino nuboso  ->  descartar
+ *     - gap 10-30 min  ->  descartar
  *     - gap >= 30 min  ->  OK (corte de sesión)
  *
  *   Darks (weather_sensitive=false):
  *     - ningún filtro adicional; basta con que existan en la fecha
+ *     - los gaps > BAD_GAP_MID siguen marcando como malas
  */
 
 export type ImageRecord = {
@@ -76,6 +77,11 @@ export function applyGapFilter(
     weatherSensitive = true,
   } = opts;
 
+  // Frontera entre "gap pequeño con vecino sospechoso" y "gap medio siempre malo".
+  // Subido de 5 -> 10 min para tolerar pausas operativas más largas
+  // (enfoque/cambio de filtro, slew del telescopio) sin descartar la imagen.
+  const BAD_GAP_MID = 10;
+
   const passesWeather = (w: number) =>
     inclusiveWeather ? w >= threshold : w > threshold;
 
@@ -120,16 +126,16 @@ export function applyGapFilter(
         const gap = (parseDt(r.datetime).getTime() -
                      parseDt(neighbor.datetime).getTime()) / 60000;
         if (weatherSensitive) {
-          if (badGapLow! <= gap && gap <= 5 && !passesWeather(neighbor.weather)) {
+          if (badGapLow! <= gap && gap <= BAD_GAP_MID && !passesWeather(neighbor.weather)) {
             bad = true;
             reason = `gap=${gap.toFixed(1)}min y vecino nuboso (${neighbor.weather}%)`;
-          } else if (5 < gap && gap < badGapHigh!) {
+          } else if (BAD_GAP_MID < gap && gap < badGapHigh!) {
             bad = true;
             reason = `gap=${gap.toFixed(1)}min al vecino`;
           }
         } else {
-          // Modo dark: solo gaps 5-30 min importan
-          if (5 < gap && gap < badGapHigh!) {
+          // Modo dark: solo gaps BAD_GAP_MID..badGapHigh importan
+          if (BAD_GAP_MID < gap && gap < badGapHigh!) {
             bad = true;
             reason = `gap=${gap.toFixed(1)}min al vecino`;
           }
