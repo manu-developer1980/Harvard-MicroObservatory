@@ -155,9 +155,9 @@ export const en = {
   "error.targetsFetch":
     "Could not fetch the target list from MicroObservatory",
 
-  "footer.credit": "made by",
+  "footer.credit": "Created by",
   "footer.datasrc":
-    "Data: {moLink} · Filtering: weather ≥ threshold + temporal continuity · Darks: only if they exist for the date",
+    "Data: {moLink} · Filtering: clear-sky ≥ threshold + continuous time coverage · Darks: only if available for the date",
   "footer.moName": "MicroObservatory @ Harvard CFA",
   "footer.igAria": "Instagram profile of @manu_astrofoto",
 
