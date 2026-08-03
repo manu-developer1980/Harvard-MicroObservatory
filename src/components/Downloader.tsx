@@ -75,6 +75,9 @@ type TransitCheckResponse = {
   target: string;
   matchedName?: string;     // pl_name que matcheó (e.g. "WASP-135 b")
   matchedHost?: string;     // hostname (e.g. "WASP-135" o "WASP-135 A")
+  // Referencias de las efemérides elegidas, en texto limpio
+  // (e.g. ["Ivshina & Winn 2022"]).
+  references?: string[];
   startJd: number;
   endJd: number;
   found: boolean;           // al menos un midpoint en la ventana
@@ -93,6 +96,10 @@ type TransitHit = {
   period: number;
   duration?: number;        // horas
   uncertaintyJd: number;    // 1σ en días
+  // Referencia bibliográfica usada para predecir este tránsito
+  // (e.g. "Ivshina & Winn 2022"). Útil para verificar la predicción
+  // contra el paper original si el resultado sorprende.
+  reference?: string;
   // Minutos de diferencia con el borde más cercano de la ventana.
   // 0 si el midpoint está dentro. Positivo = tránsito ANTES del inicio
   // (empezaste tarde). Negativo = tránsito DESPUÉS del fin (terminaste
@@ -1193,6 +1200,21 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                             </li>
                           </ul>
                         </>
+                      )}
+                    {transitCheck.data.references &&
+                      transitCheck.data.references.length > 0 && (
+                        <p className="hint transit-ephemeris">
+                          {transitCheck.data.references.map((ref, i) => (
+                            <span key={i}>
+                              {i18n("transit.ephemeris", lang, {
+                                reference: ref,
+                              })}
+                              {i < transitCheck.data.references!.length - 1
+                                ? " · "
+                                : ""}
+                            </span>
+                          ))}
+                        </p>
                       )}
                     <p className="hint transit-source">
                       {i18n("transit.legendSource", lang)} ·{" "}

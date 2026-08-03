@@ -125,6 +125,7 @@ export const en = {
   "transit.uncertainty": "±{minutes} min uncertainty",
   "transit.midpoints": "Predicted midpoints:",
   "transit.midpointItem": "{time} (±{minutes} min)",
+  "transit.ephemeris": "Ephemeris: {reference}",
 
   "progress.downloading": "Downloading {done}/{total} — {current}",
   "progress.zipping": "Compressing ZIP...",

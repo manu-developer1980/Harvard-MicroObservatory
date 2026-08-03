@@ -59,11 +59,65 @@ type PlanetEph = {
   pl_name: string;
   hostname: string;
   pl_orbper: number;        // días
+  pl_orbpererr1: number;    // incertidumbre del periodo (días)
   pl_tranmid: number;       // BJD del tránsito de referencia
   pl_tranmiderr1: number;   // incertidumbre +1σ (días)
   pl_tranmiderr2: number;   // incertidumbre -1σ (días)
   pl_trandur?: number;      // horas (puede ser null/undefined)
+  pl_refname?: string;      // referencia bibliográfica (HTML)
 };
+
+/**
+ * Incertidumbre propagada de la predicción a una fecha futura.
+ *
+ * Para n períodos desde la referencia, la incertidumbre del midpoint
+ * predicho crece aproximadamente como:
+ *
+ *     σ(t_n) ≈ √(σ(t_0)² + (n · σ(P))²)
+ *
+ * El término del periodo DOMINA a partir de ~1000 períodos hacia el
+ * futuro (σ(P) se multiplica por n). Por eso NASA usa un flag
+ * `ismostprecise=1` que NO es simplemente "menor pl_tranmiderr1", sino
+ * la efeméride con menor σ(t_n) en el momento de la consulta.
+ *
+ * Caso real: WASP-135 b tiene 6 efemérides. A 2026-07-24 (n=1569):
+ *   - Kokori 2023 (σ_t0=0.00019 d, σ_P=0.00000039 d)  -> σ(t_n) ≈ 55 min
+ *   - Ivshina 2022 (σ_t0=0.00025 d, σ_P=0.00000034 d)  -> σ(t_n) ≈ 51 min
+ * NASA marca Ivshina como ismostprecise=1. Si solo ordenamos por
+ * σ_t0, habríamos cogido Kokori (incorrecto para fechas lejanas).
+ */
+function propagatedUncertainty(
+  eph: PlanetEph,
+  n: number,
+): number {
+  const sigmaT0 = Math.max(
+    Math.abs(eph.pl_tranmiderr1 || 0),
+    Math.abs(eph.pl_tranmiderr2 || 0),
+  );
+  const sigmaP = Math.abs(eph.pl_orbpererr1 || 0);
+  return Math.sqrt(sigmaT0 * sigmaT0 + (n * sigmaP) * (n * sigmaP));
+}
+
+/**
+ * Limpia el HTML que viene en `pl_refname` (NASA lo entrega como
+ * `<a href="...">Ivshina &amp; Winn 2022</a>`) y devuelve solo el texto
+ * legible. Si la entrada no parece HTML, la devuelve tal cual.
+ */
+function stripHtml(s: string | undefined | null): string | undefined {
+  if (!s) return undefined;
+  const trimmed = s.trim();
+  if (!trimmed) return undefined;
+  // Quitamos tags y decodificamos entidades HTML básicas
+  const noTags = trimmed.replace(/<[^>]*>/g, "");
+  const decoded = noTags
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ");
+  return decoded.trim() || undefined;
+}
 
 type TransitHit = {
   pl_name: string;
@@ -74,6 +128,10 @@ type TransitHit = {
   period: number;         // días
   duration?: number;      // horas
   uncertaintyJd: number;  // 1σ en días
+  // Referencia bibliográfica de la efeméride usada para predecir este
+  // tránsito (ej. "Ivshina & Winn 2022"). Permite al usuario verificar
+  // contra el paper original si la predicción le sorprende.
+  reference?: string;
   // 0 si el midpoint está dentro de la ventana. Si está fuera, minutos
   // de diferencia con el borde más cercano de la ventana (positivo = después
   // del fin, negativo = antes del inicio).
@@ -86,6 +144,9 @@ type TransitCheckResponse = {
   target: string;
   matchedName?: string;     // pl_name que matcheó
   matchedHost?: string;     // hostname
+  // Lista de referencias (papers) seleccionadas para los planetas
+  // matcheados. Cada elemento es la versión "limpia" del pl_refname.
+  references?: string[];
   startJd: number;
   endJd: number;
   found: boolean;           // al menos un midpoint en ventana
@@ -169,21 +230,36 @@ async function tapQuery(sql: string): Promise<PlanetEph[] | null> {
  * usuario. Usar la default_flag habría dado un falso "no transit in
  * window" en un caso donde SÍ lo había.
  *
- * Ordenamos por `pl_tranmiderr1 ASC` y usamos la primera fila.
+ * NO ordenamos por `pl_tranmiderr1 ASC` aquí. La selección de la efeméride
+ * "más precisa" la hace el caller (ver `pickBestByPlanet`) usando la
+ * **incertidumbre propagada** σ(t_n) a la fecha de la consulta, igual que
+ * el flag `ismostprecise=1` de la TransitView de NASA:
+ *
+ *     σ(t_n) ≈ √(σ(t_0)² + (n · σ(P))²)
+ *
+ * Caso real: WASP-135 b tiene 6 efemérides. A 2026-07-24 (n=1569):
+ *   - Kokori 2023 (σ_t0=0.00019, σ_P=0.00000039) -> σ(t_n) ≈ 0.00083 d
+ *   - Ivshina 2022 (σ_t0=0.00025, σ_P=0.00000034) -> σ(t_n) ≈ 0.00079 d
+ * NASA marca Ivshina como ismostprecise=1; es la que la TransitView
+ * exporta. Si solo ordenáramos por σ_t0, habríamos cogido Kokori y
+ * predicho 04:58 UTC en vez de 04:57 UTC (1 min de diferencia, pero
+ * para predicciones más lejanas o periodos más largos el offset
+ * puede ser mucho mayor).
  */
 async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
   const safe = sqlEscape(target);
   // Cubrimos: hostname exacto, pl_name LIKE prefijo. El prefijo en pl_name
   // atrapa "WASP-135" -> "WASP-135 b" y "WASP-135 A" -> "WASP-135 A b".
-  // Ordenamos por precisión (menor incertidumbre primero) y filtramos por
-  // tran_flag = 1 (solo planetas con tránsitos observados).
+  // Filtramos por tran_flag = 1 (solo planetas con tránsitos observados).
+  // NO filtramos por default_flag=1 (ver comentario más abajo) ni ordenamos
+  // aquí: la selección de la "más precisa" se hace en el caller en función
+  // de la incertidumbre propagada a la fecha de la consulta.
   const query =
-    `SELECT pl_name, hostname, pl_orbper, pl_tranmid, ` +
-    `pl_tranmiderr1, pl_tranmiderr2, pl_trandur ` +
+    `SELECT pl_name, hostname, pl_orbper, pl_orbpererr1, pl_tranmid, ` +
+    `pl_tranmiderr1, pl_tranmiderr2, pl_trandur, pl_refname ` +
     `FROM ps ` +
     `WHERE (hostname = '${safe}' OR pl_name LIKE '${safe}%') ` +
-    `AND tran_flag = 1 ` +
-    `ORDER BY ABS(pl_tranmiderr1) ASC`;
+    `AND tran_flag = 1`;
 
   const result = await tapQuery(query);
   return result ?? [];
@@ -237,6 +313,7 @@ function transitsInWindow(
       period: eph.pl_orbper,
       duration: eph.pl_trandur,
       uncertaintyJd,
+      reference: stripHtml(eph.pl_refname),
       offsetMin,
     });
   }
@@ -292,6 +369,7 @@ function findNearest(
         period: eph.pl_orbper,
         duration: eph.pl_trandur,
         uncertaintyJd,
+        reference: stripHtml(eph.pl_refname),
         offsetMin,
       };
     }
@@ -369,13 +447,30 @@ export const POST: APIRoute = async ({ request }) => {
     return jsonResp(response);
   }
 
-  // Deduplicamos por pl_name: el mismo planeta puede aparecer varias
-  // veces (con distintas efemérides). Como findPlanetEphemerides ya
-  // ordena por precisión ASC, el primer match por pl_name es el más
-  // preciso y es el que usamos.
+  // Deduplicamos por pl_name eligiendo, para cada planeta, la efeméride
+  // con menor incertidumbre propagada a la fecha objetivo. Esto replica
+  // el criterio de NASA para `ismostprecise=1`.
+  //
+  // Usamos como fecha objetivo el centro de la ventana del usuario: es
+  // el momento en que típicamente quiere saber si hay un tránsito
+  // observable. Para n pequeño (sesiones casi contemporáneas a t_0) el
+  // término σ_t0 domina, igual que en `ORDER BY pl_tranmiderr1`. Para
+  // n grande (futuro lejano) el término n·σ_P domina y se imponen las
+  // efemérides con periodo más preciso.
+  const centerJd = (startJd + endJd) / 2;
   const bestByPlanet = new Map<string, PlanetEph>();
   for (const eph of ephs) {
-    if (!bestByPlanet.has(eph.pl_name)) {
+    const n = Math.round((centerJd - eph.pl_tranmid) / eph.pl_orbper);
+    const sigma = propagatedUncertainty(eph, n);
+    const existing = bestByPlanet.get(eph.pl_name);
+    if (!existing) {
+      bestByPlanet.set(eph.pl_name, eph);
+      continue;
+    }
+    const nExisting = Math.round(
+      (centerJd - existing.pl_tranmid) / existing.pl_orbper,
+    );
+    if (sigma < propagatedUncertainty(existing, nExisting)) {
       bestByPlanet.set(eph.pl_name, eph);
     }
   }
@@ -401,11 +496,23 @@ export const POST: APIRoute = async ({ request }) => {
   const matchedName = bestEphs.length === 1 ? bestEphs[0].pl_name : bestEphs.map((e) => e.pl_name).join(", ");
   const matchedHost = bestEphs.length === 1 ? bestEphs[0].hostname : `${bestEphs[0].hostname} (+${bestEphs.length - 1})`;
 
+  // Referencias de las efemérides elegidas (limpias de HTML). Deduplicadas
+  // para que la UI muestre "Ivshina & Winn 2022" una sola vez aunque haya
+  // varios planetas matcheados con el mismo paper.
+  const references = Array.from(
+    new Set(
+      bestEphs
+        .map((e) => stripHtml(e.pl_refname))
+        .filter((r): r is string => !!r),
+    ),
+  );
+
   const response: TransitCheckResponse = {
     ok: true,
     target,
     matchedName,
     matchedHost,
+    references: references.length > 0 ? references : undefined,
     startJd,
     endJd,
     found: allInWindow.length > 0,

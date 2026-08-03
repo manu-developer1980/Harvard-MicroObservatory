@@ -124,6 +124,7 @@ export const es = {
   "transit.uncertainty": "±{minutes} min de incertidumbre",
   "transit.midpoints": "Midpoints predichos:",
   "transit.midpointItem": "{time} (±{minutes} min)",
+  "transit.ephemeris": "Efemérides: {reference}",
 
   "progress.downloading": "Descargando {done}/{total} — {current}",
   "progress.zipping": "Comprimiendo ZIP...",

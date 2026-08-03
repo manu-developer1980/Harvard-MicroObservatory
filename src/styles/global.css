@@ -809,6 +809,14 @@ button:disabled { cursor: not-allowed; }
 }
 .transit-legend .transit-source a:hover { text-decoration: underline; }
 
+/* Línea con la efeméride usada (paper de referencia de NASA) */
+.transit-legend .transit-ephemeris {
+  margin: 0.35rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
