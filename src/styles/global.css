@@ -414,6 +414,83 @@ label.threshold {
 }
 .threshold-badge.tier-extreme small { color: var(--ok); opacity: 0.85; }
 
+/* Gap control: mismo layout que threshold pero slider con escala diferente.
+   El gap es "mientras más bajo, más estricto" — el gradiente va de
+   azul (estricto) a verde (recomendado) a amarillo (permisivo) a rojo (laxo). */
+label.gap {
+  gap: 0.5rem;
+}
+
+.gap-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.85rem;
+  align-items: stretch;
+}
+
+.gap-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--ok) 33%,
+    var(--warn) 67%,
+    var(--err) 100%
+  );
+  border-radius: 4px;
+  outline: none;
+  margin: 0.45rem 0;
+  cursor: pointer;
+}
+
+.gap-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.gap-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+.gap-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+
+.gap-slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+/* Tiers del gap: strict (5-8), balanced (9-12), permissive (13-20), loose (21-30) */
+.threshold-badge.tier-balanced {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+.threshold-badge.tier-balanced small { color: var(--ok); opacity: 0.85; }
+
+.threshold-badge.tier-permissive {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.threshold-badge.tier-permissive small { color: var(--warn); opacity: 0.85; }
+
 .threshold-number {
   width: 100%;
   margin-top: 0.25rem;

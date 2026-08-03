@@ -62,6 +62,7 @@ export type ApplyGapFilterOptions = {
   inclusiveWeather?: boolean;   // default true (>= threshold)
   badGapLow?: number;            // default 4
   badGapHigh?: number;           // default 30
+  badGapMid?: number;            // default 10 (frontera small/medium gap)
   weatherSensitive?: boolean;    // default true
 };
 
@@ -74,13 +75,17 @@ export function applyGapFilter(
     inclusiveWeather = true,
     badGapLow = 4,
     badGapHigh = 30,
+    badGapMid = 10,
     weatherSensitive = true,
   } = opts;
 
   // Frontera entre "gap pequeño con vecino sospechoso" y "gap medio siempre malo".
-  // Subido de 5 -> 10 min para tolerar pausas operativas más largas
-  // (enfoque/cambio de filtro, slew del telescopio) sin descartar la imagen.
-  const BAD_GAP_MID = 10;
+  // - 4..badGapMid con vecino nuboso   -> descartar
+  // - badGapMid..badGapHigh            -> descartar siempre
+  // - >= badGapHigh                    -> OK (corte de sesión)
+  // Subir este valor tolera pausas operativas más largas (slew, reenfoque,
+  // cambio de filtro) sin penalizar la imagen adyacente.
+  const BAD_GAP_MID = badGapMid;
 
   const passesWeather = (w: number) =>
     inclusiveWeather ? w >= threshold : w > threshold;

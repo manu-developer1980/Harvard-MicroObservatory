@@ -24,6 +24,7 @@ type PreviewResponse = {
   target: string;
   telescope: string;
   threshold: number;
+  badGapMid: number;
   rangeLabel: string;
   telescopes?: string[];
   filters?: string[];
@@ -68,6 +69,23 @@ function thresholdLabel(t: number): string {
   return "muy estricto";
 }
 
+// Tier cualitativo del umbral de gap entre frames (BAD_GAP_MID).
+// Mientras MÁS BAJO el valor, más estricto: gaps cortos ya descartan.
+// 5-8: estricto; 9-12: recomendado (10); 13-20: permisivo; 21-30: laxo
+function gapTier(g: number): "strict" | "balanced" | "permissive" | "loose" {
+  if (g <= 8) return "strict";
+  if (g <= 12) return "balanced";
+  if (g <= 20) return "permissive";
+  return "loose";
+}
+
+function gapLabel(g: number): string {
+  if (g <= 8) return "estricto (corta más)";
+  if (g <= 12) return "recomendado";
+  if (g <= 20) return "permisivo";
+  return "laxo (tolera pausas largas)";
+}
+
 async function fetchPreview(body: object): Promise<PreviewResponse> {
   const r = await fetch("/api/preview", {
     method: "POST",
@@ -91,6 +109,7 @@ export default function Downloader() {
   const [target, setTarget] = useState("Qatar-6");
   const [date, setDate] = useState("");
   const [threshold, setThreshold] = useState(85);
+  const [badGapMid, setBadGapMid] = useState(10);
   const [telescope, setTelescope] = useState("");
   const [requireDarks, setRequireDarks] = useState(true);
   const [dateStart, setDateStart] = useState("");
@@ -308,6 +327,7 @@ export default function Downloader() {
         target,
         date: buildDateArg(),
         threshold,
+        badGapMid,
         telescope,
         filter,
         inclusiveWeather: true,
@@ -601,7 +621,37 @@ export default function Downloader() {
                 <small>{thresholdLabel(threshold)}</small>
               </div>
             </div>
-            
+
+          </label>
+
+          <label className="gap">
+            <span>
+              Gap máximo entre frames —{" "}
+              <span className="hint">recomendado 10 min</span>
+            </span>
+            <div className="gap-row">
+              <input
+                type="range"
+                min={5}
+                max={30}
+                step={1}
+                value={badGapMid}
+                onChange={(e) => setBadGapMid(parseInt(e.target.value, 10))}
+                aria-label="Gap máximo permitido entre frames consecutivos"
+                className="gap-slider"
+              />
+              <div
+                className={`threshold-badge tier-${gapTier(badGapMid)}`}
+                aria-live="polite"
+              >
+                <strong>{badGapMid} min</strong>
+                <small>{gapLabel(badGapMid)}</small>
+              </div>
+            </div>
+            <small className="hint">
+              Gaps &gt; {badGapMid} min se descartan (suponen discontinuidad
+              operativa). ≥ 30 min cuenta como corte de sesión.
+            </small>
           </label>
 
           <label>
@@ -716,6 +766,12 @@ export default function Downloader() {
               {preview.filterAuto ? (
                 <em className="badge-auto">autodetect</em>
               ) : null}
+            </li>
+            <li>
+              <strong>Umbral clear:</strong> ≥ {preview.threshold}%
+            </li>
+            <li>
+              <strong>Gap máximo entre frames:</strong> {preview.badGapMid} min
             </li>
             <li>
               <strong>Tránsito total analizado:</strong> {preview.transitTotal}

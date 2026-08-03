@@ -36,6 +36,7 @@ type PreviewRequest = {
   threshold?: number;
   telescope?: string;
   filter?: string;                  // "" o ausente = autodetect (el más común)
+  badGapMid?: number;               // frontera small/medium gap (minutos)
   inclusiveWeather?: boolean;
   requireDarks?: boolean;
 };
@@ -52,6 +53,7 @@ type PreviewResponse = {
   target: string;
   telescope: string;
   threshold: number;
+  badGapMid: number;               // min: frontera small/medium gap usada
   rangeLabel: string;
   telescopes?: string[];           // cuando no se pasa telescopio
   filters?: string[];              // cuando no se pasa filtro
@@ -89,6 +91,10 @@ export const POST: APIRoute = async ({ request }) => {
   const threshold = typeof body.threshold === "number" ? body.threshold : 85;
   const inclusiveWeather = body.inclusiveWeather !== false; // default true
   const requireDarks = body.requireDarks !== false;          // default true
+  const badGapMid =
+    typeof body.badGapMid === "number" && body.badGapMid >= 4 && body.badGapMid <= 30
+      ? body.badGapMid
+      : 10;
 
   let start: Date | null;
   let end: Date | null;
@@ -127,6 +133,7 @@ export const POST: APIRoute = async ({ request }) => {
       target,
       telescope: "",
       threshold,
+      badGapMid,
       rangeLabel: "",
       telescopes,
       transitByDate: [],
@@ -157,6 +164,7 @@ export const POST: APIRoute = async ({ request }) => {
       target,
       telescope,
       threshold,
+      badGapMid,
       rangeLabel: "",
       telescopes,
       filters: availableFilters,
@@ -184,6 +192,7 @@ export const POST: APIRoute = async ({ request }) => {
   const { kept, discarded } = applyGapFilter(transitRows, {
     threshold,
     inclusiveWeather,
+    badGapMid,
     weatherSensitive: true,
   });
 
@@ -258,6 +267,7 @@ export const POST: APIRoute = async ({ request }) => {
     target,
     telescope,
     threshold,
+    badGapMid,
     rangeLabel,
     usedFilter,
     filterAuto,
