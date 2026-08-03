@@ -254,11 +254,20 @@ async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
   // NO filtramos por default_flag=1 (ver comentario más abajo) ni ordenamos
   // aquí: la selección de la "más precisa" se hace en el caller en función
   // de la incertidumbre propagada a la fecha de la consulta.
+  //
+  // Matching case-INsensitive: NASA almacena los hostnames con la
+  // capitalización original de la publicación (TrES-3, GJ-436, WASP-12,
+  // HD-189733, KELT-9, etc.) y los usuarios suelen escribirlos en
+  // mayúsculas (TRES-3, WASP-135). `LIKE` y `=` en ADQL son
+  // case-sensitive, así que un "TRES-3" no matcheaba "TrES-3". Envolvemos
+  // ambas partes en `LOWER()` para que cualquier capitalización del input
+  // matchee el formato canónico.
   const query =
     `SELECT pl_name, hostname, pl_orbper, pl_orbpererr1, pl_tranmid, ` +
     `pl_tranmiderr1, pl_tranmiderr2, pl_trandur, pl_refname ` +
     `FROM ps ` +
-    `WHERE (hostname = '${safe}' OR pl_name LIKE '${safe}%') ` +
+    `WHERE (LOWER(hostname) = LOWER('${safe}') ` +
+    `OR LOWER(pl_name) LIKE LOWER('${safe}%')) ` +
     `AND tran_flag = 1`;
 
   const result = await tapQuery(query);
