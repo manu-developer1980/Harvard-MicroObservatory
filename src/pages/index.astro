@@ -47,9 +47,11 @@ const lang: Lang = detectLangFromHeader(acceptLang);
         </a>
       </p>
       <p>
-        {t("footer.datasrc", lang, {
-          moLink: `<a href="https://waps.cfa.harvard.edu/microobservatory/" target="_blank" rel="noopener">${t("footer.moName", lang)}</a>`,
-        })}
+        <Fragment
+          set:html={t("footer.datasrc", lang, {
+            moLink: `<a href="https://waps.cfa.harvard.edu/microobservatory/" target="_blank" rel="noopener">${t("footer.moName", lang)}</a>`,
+          })}
+        />
       </p>
     </footer>
   </body>
