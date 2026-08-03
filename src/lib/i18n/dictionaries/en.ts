@@ -101,6 +101,24 @@ export const en = {
   "darkDebug.headers.filters": "Filters",
   "darkDebug.headers.times": "Times (UTC)",
 
+  // Transit cross-check (NASA Exoplanet Archive)
+  "transit.title": "Transit prediction (NASA Exoplanet Archive)",
+  "transit.loading": "Checking NASA Exoplanet Archive…",
+  "transit.found": "Transit midpoint detected in window ({count})",
+  "transit.foundOne": "Transit midpoint detected in window",
+  "transit.notFound": "No transit midpoint in this window",
+  "transit.notFoundTarget": "Target not found in NASA Exoplanet Archive",
+  "transit.error": "Could not verify transit: {errorMsg}",
+  "transit.legendFound":
+    "✓ A predicted transit midpoint falls within your sequence window (per NASA Exoplanet Archive). High confidence this is a real transit capture.",
+  "transit.legendNotFound":
+    "✗ No predicted transit midpoint falls within your sequence window. The light curve may still be useful (e.g. out-of-transit baseline, variability) but is unlikely to contain a transit.",
+  "transit.legendSource": "Source: NASA Exoplanet Archive",
+  "transit.viewInArchive": "View in Exoplanet Archive",
+  "transit.uncertainty": "±{minutes} min uncertainty",
+  "transit.midpoints": "Predicted midpoints:",
+  "transit.midpointItem": "{time} (±{minutes} min)",
+
   "progress.downloading": "Downloading {done}/{total} — {current}",
   "progress.zipping": "Compressing ZIP...",
   "progress.done": "✅ ZIP downloaded",

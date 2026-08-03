@@ -100,6 +100,24 @@ export const es = {
   "darkDebug.headers.filters": "Filtros",
   "darkDebug.headers.times": "Horas (UTC)",
 
+  // Cross-check con NASA Exoplanet Archive
+  "transit.title": "Predicción de tránsito (NASA Exoplanet Archive)",
+  "transit.loading": "Comprobando NASA Exoplanet Archive…",
+  "transit.found": "Midpoint de tránsito detectado en la ventana ({count})",
+  "transit.foundOne": "Midpoint de tránsito detectado en la ventana",
+  "transit.notFound": "Ningún midpoint de tránsito en esta ventana",
+  "transit.notFoundTarget": "Target no encontrado en el NASA Exoplanet Archive",
+  "transit.error": "No se pudo verificar el tránsito: {errorMsg}",
+  "transit.legendFound":
+    "✓ Un midpoint de tránsito predicho cae dentro de la ventana de tu secuencia (según NASA Exoplanet Archive). Alta confianza de que se trata de una captura real de tránsito.",
+  "transit.legendNotFound":
+    "✗ Ningún midpoint de tránsito predicho cae dentro de la ventana de tu secuencia. La curva de luz puede seguir siendo útil (p.ej. baseline fuera de tránsito, variabilidad) pero es improbable que contenga un tránsito.",
+  "transit.legendSource": "Fuente: NASA Exoplanet Archive",
+  "transit.viewInArchive": "Ver en Exoplanet Archive",
+  "transit.uncertainty": "±{minutes} min de incertidumbre",
+  "transit.midpoints": "Midpoints predichos:",
+  "transit.midpointItem": "{time} (±{minutes} min)",
+
   "progress.downloading": "Descargando {done}/{total} — {current}",
   "progress.zipping": "Comprimiendo ZIP...",
   "progress.done": "✅ ZIP descargado",

@@ -65,6 +65,32 @@ type PreviewResponse = {
   sequenceMinutes: number;
 };
 
+// Respuesta de /api/transit-check (NASA Exoplanet Archive cross-check).
+type TransitCheckResponse = {
+  ok: boolean;
+  error?: string;
+  target: string;
+  matchedName?: string;
+  startJd: number;
+  endJd: number;
+  found: boolean;
+  count: number;
+  transits: Array<{
+    midtimeJd: number;
+    midtimeUtc: string;
+    midtimeIso: string;
+    period?: number;
+    uncertaintyJd?: number;
+  }>;
+  source: string;
+};
+
+type TransitCheckState =
+  | { state: "loading" }
+  | { state: "found"; data: TransitCheckResponse }
+  | { state: "notFound"; data: TransitCheckResponse }
+  | { state: "error"; errorMsg: string };
+
 type DownloadProgress = {
   total: number;
   done: number;
@@ -218,6 +244,15 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     current: "",
     phase: "idle",
   });
+
+  // Cross-check con NASA Exoplanet Archive: ¿hay un midpoint de tránsito
+  // predicho dentro de la ventana de la secuencia? Token anti-race: si el
+  // usuario cambia target/fecha y vuelve a pedir preview, descartamos la
+  // respuesta de la consulta anterior.
+  const [transitCheck, setTransitCheck] = useState<TransitCheckState | null>(
+    null,
+  );
+  const transitCheckTokenRef = useRef(0);
 
   const dateStartRef = useRef<HTMLInputElement>(null);
   const dateEndRef = useRef<HTMLInputElement>(null);
@@ -499,6 +534,50 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   const totalDarks =
     preview?.transitByDate.reduce((acc, g) => acc + g.darks.length, 0) ?? 0;
   const totalFiles = totalTransit + totalDarks;
+
+  // Cuando el usuario tiene un preview con ventana temporal válida, lanzamos
+  // una consulta al endpoint de NASA para ver si hay un tránsito predicho
+  // dentro de la ventana. Token anti-race: si el usuario cambia el target
+  // y vuelve a pedir preview mientras la consulta anterior sigue en vuelo,
+  // descartamos su respuesta.
+  useEffect(() => {
+    if (!preview?.sequenceStart || !preview.sequenceEnd) {
+      setTransitCheck(null);
+      return;
+    }
+    const myToken = ++transitCheckTokenRef.current;
+    setTransitCheck({ state: "loading" });
+    fetch("/api/transit-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        target: preview.target,
+        start: preview.sequenceStart,
+        end: preview.sequenceEnd,
+      }),
+    })
+      .then((r) => r.json() as Promise<TransitCheckResponse>)
+      .then((data) => {
+        if (myToken !== transitCheckTokenRef.current) return;
+        if (!data.ok) {
+          setTransitCheck({
+            state: "error",
+            errorMsg: data.error ?? "?",
+          });
+        } else if (data.found) {
+          setTransitCheck({ state: "found", data });
+        } else {
+          setTransitCheck({ state: "notFound", data });
+        }
+      })
+      .catch((e) => {
+        if (myToken !== transitCheckTokenRef.current) return;
+        setTransitCheck({
+          state: "error",
+          errorMsg: e instanceof Error ? e.message : String(e),
+        });
+      });
+  }, [preview?.sequenceStart, preview?.sequenceEnd, preview?.target]);
 
   return (
     <div className="downloader">
@@ -916,31 +995,116 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                 )}
               </li>
             )}
+            {transitCheck && (
+              <li className={`transit-check transit-${transitCheck.state}`}>
+                <span className="transit-icon" aria-hidden="true">
+                  {transitCheck.state === "loading" && "⏳"}
+                  {transitCheck.state === "found" && "✓"}
+                  {transitCheck.state === "notFound" && "✗"}
+                  {transitCheck.state === "error" && "⚠"}
+                </span>
+                <span className="transit-label">
+                  {transitCheck.state === "loading" &&
+                    i18n("transit.loading", lang)}
+                  {transitCheck.state === "found" &&
+                    (transitCheck.data.count > 1
+                      ? i18n("transit.found", lang, {
+                          count: transitCheck.data.count,
+                        })
+                      : i18n("transit.foundOne", lang))}
+                  {transitCheck.state === "notFound" &&
+                    (transitCheck.data.matchedName
+                      ? i18n("transit.notFound", lang)
+                      : i18n("transit.notFoundTarget", lang))}
+                  {transitCheck.state === "error" &&
+                    i18n("transit.error", lang, {
+                      errorMsg: transitCheck.errorMsg,
+                    })}
+                </span>
+              </li>
+            )}
           </ul>
 
           {preview.transitByDate.length === 0 ? (
             <p className="warn">{i18n("summary.empty", lang)}</p>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Tránsito</th>
-                  <th>Darks</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.transitByDate.map((g) => (
-                  <tr key={g.date}>
-                    <td>{toDDMMYYYY(g.date)}</td>
-                    <td>{g.transit.length}</td>
-                    <td>{g.darks.length}</td>
-                    <td>{g.transit.length + g.darks.length}</td>
+            <>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tránsito</th>
+                    <th>Darks</th>
+                    <th>Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {preview.transitByDate.map((g) => (
+                    <tr key={g.date}>
+                      <td>{toDDMMYYYY(g.date)}</td>
+                      <td>{g.transit.length}</td>
+                      <td>{g.darks.length}</td>
+                      <td>{g.transit.length + g.darks.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {transitCheck &&
+                (transitCheck.state === "found" ||
+                  transitCheck.state === "notFound") && (
+                  <div
+                    className={`transit-legend transit-${transitCheck.state}`}
+                  >
+                    <p>
+                      {transitCheck.state === "found"
+                        ? i18n("transit.legendFound", lang)
+                        : i18n("transit.legendNotFound", lang)}
+                    </p>
+                    {transitCheck.data.transits.length > 0 && (
+                      <>
+                        <p className="hint">
+                          {i18n("transit.midpoints", lang)}
+                        </p>
+                        <ul className="transit-midpoints">
+                          {transitCheck.data.transits.map((t, i) => (
+                            <li key={i}>
+                              <code>{t.midtimeUtc}</code>
+                              {t.uncertaintyJd !== undefined && (
+                                <>
+                                  {" "}
+                                  — {i18n("transit.uncertainty", lang, {
+                                    minutes: (t.uncertaintyJd * 24 * 60).toFixed(
+                                      1,
+                                    ),
+                                  })}
+                                </>
+                              )}
+                              {t.period !== undefined && (
+                                <>
+                                  {" "}
+                                  <span className="hint">
+                                    (P = {t.period.toFixed(4)} d)
+                                  </span>
+                                </>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    <p className="hint transit-source">
+                      {i18n("transit.legendSource", lang)} ·{" "}
+                      <a
+                        href={`https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TransitView/nph-visibletbls?dataset=transits&sname=${encodeURIComponent(preview.target)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {i18n("transit.viewInArchive", lang)} ↗
+                      </a>
+                    </p>
+                  </div>
+                )}
+            </>
           )}
 
           {preview.transitDiscarded.length > 0 && (
