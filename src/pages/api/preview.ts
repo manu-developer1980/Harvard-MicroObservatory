@@ -18,6 +18,9 @@ import {
   applyGapFilter,
   filterByDateRange,
   filterByTelescope,
+  filterByCaptureFilter,
+  discoverFilters,
+  pickMostCommonFilter,
   parseDateArg,
   parseDt,
   dateKey,
@@ -32,6 +35,7 @@ type PreviewRequest = {
   date?: string;
   threshold?: number;
   telescope?: string;
+  filter?: string;                  // "" o ausente = autodetect (el más común)
   inclusiveWeather?: boolean;
   requireDarks?: boolean;
 };
@@ -50,6 +54,9 @@ type PreviewResponse = {
   threshold: number;
   rangeLabel: string;
   telescopes?: string[];           // cuando no se pasa telescopio
+  filters?: string[];              // cuando no se pasa filtro
+  usedFilter?: string;             // filtro realmente usado (post-autodetect)
+  filterAuto?: boolean;            // true si usedFilter fue autodetect
   transitByDate: DateGroup[];
   transitDiscarded: Array<{ record: ImageRecord; reason: string }>;
   darkCount: number;
@@ -131,9 +138,49 @@ export const POST: APIRoute = async ({ request }) => {
     } satisfies PreviewResponse);
   }
 
+  // 2b. Filtros disponibles para este telescopio + rango de fechas.
+  // Lo computamos desde las filas que ya matchean telescopio+fecha,
+  // porque el filtro puede depender del telescopio (no todos los scopes
+  // tienen todos los filtros).
+  const scopedRows = filterByDateRange(
+    filterByTelescope(allRows, telescope),
+    { start, end },
+  );
+  const availableFilters = discoverFilters(scopedRows);
+
+  // Si no nos pasan filtro, paramos aquí con la lista para que la UI
+  // muestre el selector. Igual que con telescopes.
+  const filterArg = (body.filter ?? "").trim();
+  if (!filterArg) {
+    return json({
+      ok: true,
+      target,
+      telescope,
+      threshold,
+      rangeLabel: "",
+      telescopes,
+      filters: availableFilters,
+      transitByDate: [],
+      transitDiscarded: [],
+      darkCount: 0,
+      darkByTelescope: 0,
+      transitTotal: scopedRows.length,
+      transitKept: 0,
+    } satisfies PreviewResponse);
+  }
+
+  // 2c. Resolver el filtro: si la UI manda "" o un filtro que no está
+  // disponible, hacemos fallback al más común. Marcamos `filterAuto` para
+  // que la UI pueda avisar al usuario de que se autodetectó.
+  let usedFilter = filterArg;
+  let filterAuto = false;
+  if (usedFilter === "__auto__" || !availableFilters.includes(usedFilter)) {
+    usedFilter = pickMostCommonFilter(scopedRows);
+    filterAuto = true;
+  }
+
   // 3. Filtrar tránsito
-  let transitRows = filterByTelescope(allRows, telescope);
-  transitRows = filterByDateRange(transitRows, { start, end });
+  let transitRows = filterByCaptureFilter(scopedRows, usedFilter);
   const { kept, discarded } = applyGapFilter(transitRows, {
     threshold,
     inclusiveWeather,
@@ -147,6 +194,9 @@ export const POST: APIRoute = async ({ request }) => {
     darkRows = parseRows(darkHtml);
     darkRows = filterByTelescope(darkRows, telescope);
     darkRows = filterByDateRange(darkRows, { start, end });
+    // Los darks también son filter-dependent: aplicamos el mismo filtro
+    // que las imágenes de ciencia para mantener consistencia fotométrica.
+    darkRows = filterByCaptureFilter(darkRows, usedFilter);
   }
 
   // 5. Intersección de fechas (tránsito válido + darks existentes)
@@ -209,6 +259,8 @@ export const POST: APIRoute = async ({ request }) => {
     telescope,
     threshold,
     rangeLabel,
+    usedFilter,
+    filterAuto,
     transitByDate,
     transitDiscarded,
     darkCount: darkRows.length,

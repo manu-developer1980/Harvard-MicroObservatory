@@ -84,9 +84,13 @@ export function parseRows(html: string): ImageRecord[] {
       fitsHref.split("/").pop() ?? "",
     );
 
-    // Info
+    // Info: el layout del CSV es
+    //   Target,Filename,DateLocal,StartExp,EndExp,LST,UT,ExpTime,Cam,Filter,
+    //   InOut,Alt,RA,Dec,Alt2,Az2,HA,Tele,Lat,Lon,Town,State,Country
+    //  ( 0      1       2        3       4     5  6   7       8   9  ...
     const info = $tr.find("td.Object_Info_td").text().trim();
     const parts = info.split(",");
+    const filter = (parts[9] ?? "").trim();
     const telescope = (parts[17] ?? "").trim();
     const site = (parts[20] ?? "").trim();
 
@@ -100,6 +104,7 @@ export function parseRows(html: string): ImageRecord[] {
       datetime: dt,
       fits,
       weather,
+      filter,
       telescope,
       site,
     });

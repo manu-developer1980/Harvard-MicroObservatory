@@ -27,6 +27,9 @@ type PreviewResponse = {
   threshold: number;
   rangeLabel: string;
   telescopes?: string[];
+  filters?: string[];
+  usedFilter?: string;
+  filterAuto?: boolean;
   transitByDate: DateGroup[];
   transitDiscarded: Array<{ record: ImageRecord; reason: string }>;
   darkCount: number;
@@ -95,6 +98,8 @@ export default function Downloader() {
   const [dateEnd, setDateEnd] = useState("");
 
   const [telescopes, setTelescopes] = useState<string[] | null>(null);
+  const [filters, setFilters] = useState<string[] | null>(null);
+  const [filter, setFilter] = useState("");
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -168,6 +173,8 @@ export default function Downloader() {
   useEffect(() => {
     let cancelled = false;
     setTelescopes(null);
+    setFilters(null);
+    setFilter("");
     setPreview(null);
     if (!target) return;
     setLoading(true);
@@ -190,6 +197,41 @@ export default function Downloader() {
     };
   }, [target]);
 
+  // Paso 1b: descubrir filtros cuando cambia el telescopio
+  useEffect(() => {
+    if (!telescope) {
+      setFilters(null);
+      setFilter("");
+      return;
+    }
+    let cancelled = false;
+    setFilters(null);
+    setFilter("");
+    setPreview(null);
+    setLoading(true);
+    fetchPreview({ target, telescope, threshold })
+      .then((data) => {
+        if (cancelled) return;
+        const list = data.filters ?? [];
+        setFilters(list);
+        // Si hay un solo filtro, lo seleccionamos automáticamente.
+        // Si hay varios, dejamos en "__auto__" para autodetect en backend.
+        if (list.length === 1) {
+          setFilter(list[0]);
+        } else {
+          setFilter("__auto__");
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setErrMsg(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [telescope, target, threshold]);
+
   // Paso 2: preview
   const handlePreview = async () => {
     if (!telescope) {
@@ -205,6 +247,7 @@ export default function Downloader() {
         date: buildDateArg(),
         threshold,
         telescope,
+        filter,
         inclusiveWeather: true,
         requireDarks,
       });
@@ -462,7 +505,7 @@ export default function Downloader() {
                 type="text"
                 value={telescope}
                 onChange={(e) => setTelescope(e.target.value)}
-                placeholder="sin datos"
+                placeholder="(sin telescopios para este target)"
               />
             ) : (
               <select
@@ -473,6 +516,34 @@ export default function Downloader() {
                 {telescopes.map((t) => (
                   <option key={t} value={t}>
                     {t}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+          <label>
+            <span>
+              Filtro de captura —{" "}
+              <span className="hint">EXOTIC asume mismo filtro en toda la secuencia</span>
+            </span>
+            {filters === null ? (
+              <input type="text" disabled value="cargando..." />
+            ) : filters.length === 0 ? (
+              <input type="text" disabled value="(sin imágenes)" />
+            ) : filters.length === 1 ? (
+              <div className="filter-locked">
+                <code>{filters[0]}</code>
+                <small>único disponible para este telescopio</small>
+              </div>
+            ) : (
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              >
+                <option value="__auto__">auto (el más común)</option>
+                {filters.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
                   </option>
                 ))}
               </select>
@@ -525,6 +596,13 @@ export default function Downloader() {
             </li>
             <li>
               <strong>Rango:</strong> {preview.rangeLabel}
+            </li>
+            <li>
+              <strong>Filtro:</strong>{" "}
+              <code>{preview.usedFilter ?? "—"}</code>{" "}
+              {preview.filterAuto ? (
+                <em className="badge-auto">autodetect</em>
+              ) : null}
             </li>
             <li>
               <strong>Tránsito total analizado:</strong> {preview.transitTotal}

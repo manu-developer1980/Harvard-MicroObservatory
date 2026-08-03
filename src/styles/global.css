@@ -122,6 +122,42 @@ label.checkbox > span {
   font-size: 0.9rem;
 }
 
+/* Filter (capture optical filter) display */
+.filter-locked {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.filter-locked code {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  color: var(--accent);
+  background: transparent;
+  padding: 0;
+}
+.filter-locked small {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.badge-auto {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.7rem;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid var(--warn);
+  border-radius: 3px;
+}
+
 .hint {
   color: var(--text-dim);
   font-weight: normal;

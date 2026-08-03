@@ -17,6 +17,7 @@ export type ImageRecord = {
   datetime: string;    // "20-Jul-2026 06:12:15"
   fits: string;        // "Qatar-6260723030146.FITS"
   weather: number;     // 0..100
+  filter: string;      // "V", "R", "I", "clear", etc. (rueda de filtros del telescopio)
   telescope: string;
   site: string;
 };
@@ -179,6 +180,52 @@ export function filterByTelescope(
 ): ImageRecord[] {
   const t = telescope.toLowerCase();
   return rows.filter((r) => r.telescope.toLowerCase() === t);
+}
+
+/**
+ * Filtra por el filtro óptico de captura (rueda de filtros del telescopio:
+ * "V", "R", "I", "clear"...). Si el filtro es vacío, devuelve todo.
+ * Importante: EXOTIC asume que todas las imágenes de un tránsito están
+ * con el mismo filtro. Mezclar filtros contamina la curva de luz.
+ */
+export function filterByCaptureFilter(
+  rows: ImageRecord[],
+  filter: string,
+): ImageRecord[] {
+  const f = filter.trim();
+  if (!f) return [...rows];
+  return rows.filter((r) => r.filter === f);
+}
+
+/**
+ * Devuelve los filtros únicos presentes en un set de filas, ordenados
+ * alfabéticamente. Útil para el discovery de la UI.
+ */
+export function discoverFilters(rows: ImageRecord[]): string[] {
+  return Array.from(
+    new Set(rows.map((r) => r.filter).filter((f) => f.length > 0)),
+  ).sort();
+}
+
+/**
+ * Elige el filtro más común de un set de filas. Si hay empate, el primero
+ * alfabéticamente. Si no hay filas, devuelve "".
+ */
+export function pickMostCommonFilter(rows: ImageRecord[]): string {
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.filter) continue;
+    counts.set(r.filter, (counts.get(r.filter) ?? 0) + 1);
+  }
+  let best = "";
+  let bestCount = 0;
+  for (const [f, c] of counts) {
+    if (c > bestCount || (c === bestCount && f < best)) {
+      best = f;
+      bestCount = c;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------
