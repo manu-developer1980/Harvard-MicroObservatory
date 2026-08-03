@@ -106,13 +106,20 @@ export const en = {
   "transit.loading": "Checking NASA Exoplanet Archive…",
   "transit.found": "Transit midpoint detected in window ({count})",
   "transit.foundOne": "Transit midpoint detected in window",
+  "transit.nearMiss": "Closest transit was {minutes} min {sign} window",
+  "transit.nearMissBefore": "before",
+  "transit.nearMissAfter": "after",
   "transit.notFound": "No transit midpoint in this window",
   "transit.notFoundTarget": "Target not found in NASA Exoplanet Archive",
   "transit.error": "Could not verify transit: {errorMsg}",
   "transit.legendFound":
-    "✓ A predicted transit midpoint falls within your sequence window (per NASA Exoplanet Archive). High confidence this is a real transit capture.",
+    "✓ A predicted transit midpoint falls within your sequence window ({matchedName}, per NASA Exoplanet Archive). High confidence this is a real transit capture.",
   "transit.legendNotFound":
     "✗ No predicted transit midpoint falls within your sequence window. The light curve may still be useful (e.g. out-of-transit baseline, variability) but is unlikely to contain a transit.",
+  "transit.legendNearMiss":
+    "△ The closest predicted transit was {minutes} minutes away from your sequence window. You may have caught ingress/egress partial coverage — check the NASA Exoplanet Archive link below for details.",
+  "transit.nearest": "Nearest predicted transit:",
+  "transit.nearestOffset": "({minutes} min {sign} window)",
   "transit.legendSource": "Source: NASA Exoplanet Archive",
   "transit.viewInArchive": "View in Exoplanet Archive",
   "transit.uncertainty": "±{minutes} min uncertainty",

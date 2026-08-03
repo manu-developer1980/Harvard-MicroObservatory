@@ -105,13 +105,20 @@ export const es = {
   "transit.loading": "Comprobando NASA Exoplanet Archive…",
   "transit.found": "Midpoint de tránsito detectado en la ventana ({count})",
   "transit.foundOne": "Midpoint de tránsito detectado en la ventana",
+  "transit.nearMiss": "El tránsito más cercano estaba {minutes} min {sign} de tu ventana",
+  "transit.nearMissBefore": "antes",
+  "transit.nearMissAfter": "después",
   "transit.notFound": "Ningún midpoint de tránsito en esta ventana",
   "transit.notFoundTarget": "Target no encontrado en el NASA Exoplanet Archive",
   "transit.error": "No se pudo verificar el tránsito: {errorMsg}",
   "transit.legendFound":
-    "✓ Un midpoint de tránsito predicho cae dentro de la ventana de tu secuencia (según NASA Exoplanet Archive). Alta confianza de que se trata de una captura real de tránsito.",
+    "✓ Un midpoint de tránsito predicho cae dentro de la ventana de tu secuencia ({matchedName}, según NASA Exoplanet Archive). Alta confianza de que se trata de una captura real de tránsito.",
   "transit.legendNotFound":
     "✗ Ningún midpoint de tránsito predicho cae dentro de la ventana de tu secuencia. La curva de luz puede seguir siendo útil (p.ej. baseline fuera de tránsito, variabilidad) pero es improbable que contenga un tránsito.",
+  "transit.legendNearMiss":
+    "△ El tránsito predicho más cercano estaba a {minutes} minutos de tu ventana. Puede que hayas capturado cobertura parcial del ingreso o egreso — consulta el enlace al NASA Exoplanet Archive más abajo para detalles.",
+  "transit.nearest": "Tránsito predicho más cercano:",
+  "transit.nearestOffset": "(a {minutes} min {sign} de la ventana)",
   "transit.legendSource": "Fuente: NASA Exoplanet Archive",
   "transit.viewInArchive": "Ver en Exoplanet Archive",
   "transit.uncertainty": "±{minutes} min de incertidumbre",

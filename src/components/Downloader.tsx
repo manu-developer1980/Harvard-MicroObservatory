@@ -66,30 +66,50 @@ type PreviewResponse = {
 };
 
 // Respuesta de /api/transit-check (NASA Exoplanet Archive cross-check).
+// El endpoint usa TAP query a la tabla `ps` + cálculo propio de tránsitos
+// (t_n = t0 + n*P) en vez de la Transit Service API, que ignora bJD/eJD
+// y solo devuelve el "next transit".
 type TransitCheckResponse = {
   ok: boolean;
   error?: string;
   target: string;
-  matchedName?: string;
+  matchedName?: string;     // pl_name que matcheó (e.g. "WASP-135 b")
+  matchedHost?: string;     // hostname (e.g. "WASP-135" o "WASP-135 A")
   startJd: number;
   endJd: number;
-  found: boolean;
+  found: boolean;           // al menos un midpoint en la ventana
   count: number;
-  transits: Array<{
-    midtimeJd: number;
-    midtimeUtc: string;
-    midtimeIso: string;
-    period?: number;
-    uncertaintyJd?: number;
-  }>;
+  transits: Array<TransitHit>;
+  nearest: TransitHit | null; // tránsito más cercano (puede estar fuera)
   source: string;
+};
+
+type TransitHit = {
+  pl_name: string;
+  hostname: string;
+  midtimeJd: number;
+  midtimeUtc: string;
+  midtimeIso: string;
+  period: number;
+  duration?: number;        // horas
+  uncertaintyJd: number;    // 1σ en días
+  // Minutos de diferencia con el borde más cercano de la ventana.
+  // 0 si el midpoint está dentro. Positivo = tránsito ANTES del inicio
+  // (empezaste tarde). Negativo = tránsito DESPUÉS del fin (terminaste
+  // antes).
+  offsetMin: number;
 };
 
 type TransitCheckState =
   | { state: "loading" }
   | { state: "found"; data: TransitCheckResponse }
+  | { state: "nearMiss"; data: TransitCheckResponse; offsetMin: number }
   | { state: "notFound"; data: TransitCheckResponse }
   | { state: "error"; errorMsg: string };
+
+// Umbral para considerar un tránsito como "near miss" en vez de "no
+// transit". Lo razonable es la mitad de un tránsito típico: 2h.
+const NEAR_MISS_THRESHOLD_MIN = 120;
 
 type DownloadProgress = {
   total: number;
@@ -566,6 +586,18 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
           });
         } else if (data.found) {
           setTransitCheck({ state: "found", data });
+        } else if (
+          data.nearest &&
+          Math.abs(data.nearest.offsetMin) <= NEAR_MISS_THRESHOLD_MIN
+        ) {
+          // Hay un tránsito cerca (dentro de NEAR_MISS_THRESHOLD_MIN)
+          // pero su midpoint cae fuera de la ventana. Avisamos al usuario
+          // de que se perdió por poco.
+          setTransitCheck({
+            state: "nearMiss",
+            data,
+            offsetMin: data.nearest.offsetMin,
+          });
         } else {
           setTransitCheck({ state: "notFound", data });
         }
@@ -1000,6 +1032,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                 <span className="transit-icon" aria-hidden="true">
                   {transitCheck.state === "loading" && "⏳"}
                   {transitCheck.state === "found" && "✓"}
+                  {transitCheck.state === "nearMiss" && "△"}
                   {transitCheck.state === "notFound" && "✗"}
                   {transitCheck.state === "error" && "⚠"}
                 </span>
@@ -1012,6 +1045,16 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                           count: transitCheck.data.count,
                         })
                       : i18n("transit.foundOne", lang))}
+                  {transitCheck.state === "nearMiss" &&
+                    i18n("transit.nearMiss", lang, {
+                      minutes: Math.abs(transitCheck.offsetMin),
+                      sign: i18n(
+                        transitCheck.offsetMin > 0
+                          ? "transit.nearMissBefore"
+                          : "transit.nearMissAfter",
+                        lang,
+                      ),
+                    })}
                   {transitCheck.state === "notFound" &&
                     (transitCheck.data.matchedName
                       ? i18n("transit.notFound", lang)
@@ -1051,51 +1094,110 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
               </table>
               {transitCheck &&
                 (transitCheck.state === "found" ||
-                  transitCheck.state === "notFound") && (
+                  transitCheck.state === "notFound" ||
+                  transitCheck.state === "nearMiss") && (
                   <div
                     className={`transit-legend transit-${transitCheck.state}`}
                   >
                     <p>
-                      {transitCheck.state === "found"
-                        ? i18n("transit.legendFound", lang)
-                        : i18n("transit.legendNotFound", lang)}
+                      {transitCheck.state === "found" &&
+                        i18n("transit.legendFound", lang, {
+                          matchedName: transitCheck.data.matchedName ?? "",
+                        })}
+                      {transitCheck.state === "notFound" &&
+                        (transitCheck.data.matchedName
+                          ? i18n("transit.legendNotFound", lang)
+                          : i18n("transit.notFoundTarget", lang))}
+                      {transitCheck.state === "nearMiss" &&
+                        i18n("transit.legendNearMiss", lang, {
+                          minutes: Math.abs(
+                            "offsetMin" in transitCheck
+                              ? transitCheck.offsetMin
+                              : 0,
+                          ),
+                        })}
                     </p>
-                    {transitCheck.data.transits.length > 0 && (
-                      <>
-                        <p className="hint">
-                          {i18n("transit.midpoints", lang)}
-                        </p>
-                        <ul className="transit-midpoints">
-                          {transitCheck.data.transits.map((t, i) => (
-                            <li key={i}>
-                              <code>{t.midtimeUtc}</code>
-                              {t.uncertaintyJd !== undefined && (
-                                <>
-                                  {" "}
-                                  — {i18n("transit.uncertainty", lang, {
-                                    minutes: (t.uncertaintyJd * 24 * 60).toFixed(
-                                      1,
-                                    ),
-                                  })}
-                                </>
-                              )}
-                              {t.period !== undefined && (
+                    {transitCheck.state === "found" &&
+                      transitCheck.data.transits.length > 0 && (
+                        <>
+                          <p className="hint">
+                            {i18n("transit.midpoints", lang)}
+                          </p>
+                          <ul className="transit-midpoints">
+                            {transitCheck.data.transits.map((t, i) => (
+                              <li key={i}>
+                                <code>{t.midtimeUtc}</code>
+                                {t.uncertaintyJd !== undefined && (
+                                  <>
+                                    {" "}
+                                    — {i18n("transit.uncertainty", lang, {
+                                      minutes: (
+                                        t.uncertaintyJd *
+                                        24 *
+                                        60
+                                      ).toFixed(1),
+                                    })}
+                                  </>
+                                )}
+                                {t.duration !== undefined && (
+                                  <>
+                                    {" "}
+                                    <span className="hint">
+                                      (T = {t.duration.toFixed(2)} h, P ={" "}
+                                      {t.period.toFixed(4)} d)
+                                    </span>
+                                  </>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    {(transitCheck.state === "notFound" ||
+                      transitCheck.state === "nearMiss") &&
+                      transitCheck.data.nearest && (
+                        <>
+                          <p className="hint">
+                            {i18n("transit.nearest", lang)}
+                          </p>
+                          <ul className="transit-midpoints">
+                            <li>
+                              <code>
+                                {transitCheck.data.nearest.midtimeUtc}
+                              </code>
+                              {" "}
+                              — {i18n("transit.nearestOffset", lang, {
+                                minutes: Math.abs(
+                                  transitCheck.data.nearest.offsetMin,
+                                ),
+                                sign: i18n(
+                                  transitCheck.data.nearest.offsetMin > 0
+                                    ? "transit.nearMissBefore"
+                                    : "transit.nearMissAfter",
+                                  lang,
+                                ),
+                              })}
+                              {transitCheck.data.nearest.duration !==
+                                undefined && (
                                 <>
                                   {" "}
                                   <span className="hint">
-                                    (P = {t.period.toFixed(4)} d)
+                                    (T ={" "}
+                                    {transitCheck.data.nearest.duration.toFixed(
+                                      2,
+                                    )}{" "}
+                                    h)
                                   </span>
                                 </>
                               )}
                             </li>
-                          ))}
-                        </ul>
-                      </>
-                    )}
+                          </ul>
+                        </>
+                      )}
                     <p className="hint transit-source">
                       {i18n("transit.legendSource", lang)} ·{" "}
                       <a
-                        href={`https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TransitView/nph-visibletbls?dataset=transits&sname=${encodeURIComponent(preview.target)}`}
+                        href={`https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TransitView/nph-visibletbls?dataset=transits&sname=${encodeURIComponent(transitCheck.data.matchedHost ?? preview.target)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
