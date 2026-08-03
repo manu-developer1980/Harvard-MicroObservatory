@@ -1134,7 +1134,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                             {transitCheck.data.transits.map((t, i) => (
                               <li key={i}>
                                 <code>{t.midtimeUtc}</code>
-                                {t.uncertaintyJd !== undefined && (
+                                {t.uncertaintyJd != null && (
                                   <>
                                     {" "}
                                     — {i18n("transit.uncertainty", lang, {
@@ -1146,7 +1146,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                                     })}
                                   </>
                                 )}
-                                {t.duration !== undefined && (
+                                {t.duration != null && t.period != null && (
                                   <>
                                     {" "}
                                     <span className="hint">
@@ -1184,8 +1184,8 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                                   lang,
                                 ),
                               })}
-                              {transitCheck.data.nearest.duration !==
-                                undefined && (
+                              {transitCheck.data.nearest.duration !=
+                                null && (
                                 <>
                                   {" "}
                                   <span className="hint">

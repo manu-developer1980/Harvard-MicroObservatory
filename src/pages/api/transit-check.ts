@@ -311,7 +311,11 @@ function transitsInWindow(
       midtimeUtc: isoToMoFormat(midIso),
       midtimeIso: midIso,
       period: eph.pl_orbper,
-      duration: eph.pl_trandur,
+      // Normalizamos null -> undefined: la tabla `ps` puede tener
+      // pl_trandur NULL (tránsitos sin duración medida) y queremos
+      // que el cliente pueda hacer `if (t.duration != null)` sin
+      // romperse con un JSON `null` literal.
+      duration: eph.pl_trandur ?? undefined,
       uncertaintyJd,
       reference: stripHtml(eph.pl_refname),
       offsetMin,
@@ -367,7 +371,8 @@ function findNearest(
         midtimeUtc: isoToMoFormat(midIso),
         midtimeIso: midIso,
         period: eph.pl_orbper,
-        duration: eph.pl_trandur,
+        // Ver `transitsInWindow` por qué normalizamos null -> undefined.
+        duration: eph.pl_trandur ?? undefined,
         uncertaintyJd,
         reference: stripHtml(eph.pl_refname),
         offsetMin,
