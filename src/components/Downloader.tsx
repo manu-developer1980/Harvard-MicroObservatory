@@ -658,13 +658,18 @@ export default function Downloader() {
             )}
           </label>
 
-          <label className="checkbox">
+          <label className="checkbox checkbox-warn">
             <input
               type="checkbox"
-              checked={requireDarks}
-              onChange={(e) => setRequireDarks(e.target.checked)}
+              checked={!requireDarks}
+              onChange={(e) => setRequireDarks(!e.target.checked)}
             />
-            <span>Requerir darks en cada fecha</span>
+            <span>Permitir sin darks</span>
+            <small className="hint">
+              Por defecto, EXOTIC exige darks de la misma fecha y telescopio.
+              Activa esta opción solo si tu sesión no tiene darks
+              disponibles: la curva de luz saldrá más ruidosa.
+            </small>
           </label>
         </div>
 

@@ -122,6 +122,35 @@ label.checkbox > span {
   font-size: 0.9rem;
 }
 
+/* Variante "avanzada": checkbox con texto de advertencia sobre trade-off.
+   El label envuelve checkbox + texto + hint, así que se reordena como
+   bloque vertical y se alinea arriba. */
+label.checkbox-warn {
+  align-self: stretch;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+label.checkbox-warn > span {
+  color: var(--warn);
+  font-weight: 500;
+}
+
+label.checkbox-warn .hint {
+  display: block;
+  flex-basis: 100%;
+  margin-top: 0.4rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
 /* Filter (capture optical filter) display */
 .filter-locked {
   display: flex;
