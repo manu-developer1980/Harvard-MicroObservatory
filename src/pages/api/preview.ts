@@ -28,7 +28,7 @@ import {
   type ImageRecord,
   type DiscardedRecord,
 } from "@/lib/filters";
-import { t, type Lang } from "@/lib/i18n";
+import { t, getReqLang, type Lang } from "@/lib/i18n";
 
 export const prerender = false;
 
@@ -81,6 +81,11 @@ type PreviewResponse = {
       matchedScope: boolean;       // true si hay dark del telescopio elegido
     }>;
   };
+  // Ventana temporal de la secuencia final (imágenes que pasan los filtros
+  // de weather + gap + darks). Vacío si no hay imágenes válidas.
+  sequenceStart: string;           // "27-Jul-2026 04:18:42" (UTC)
+  sequenceEnd: string;             // "27-Jul-2026 08:55:12" (UTC)
+  sequenceMinutes: number;         // duración en minutos
 };
 
 function json(body: unknown, status = 200): Response {
@@ -94,15 +99,25 @@ function json(body: unknown, status = 200): Response {
 }
 
 export const POST: APIRoute = async ({ request }) => {
+  // 1. Determinamos el idioma ANTES de cualquier respuesta de error
+  // para que TODOS los mensajes vuelvan traducidos.
+  const reqLang: Lang = getReqLang(request);
+
   let body: PreviewRequest;
   try {
     body = (await request.json()) as PreviewRequest;
   } catch {
-    return json({ ok: false, error: "JSON inválido" }, 400);
+    return json({ ok: false, error: t("error.invalidJson", reqLang) }, 400);
   }
 
+  // El body puede sobreescribir el lang (caso típico: el cliente forzó
+  // un idioma distinto al de Accept-Language con el switcher).
+  const finalLang: Lang =
+    body.lang === "es" || body.lang === "en" ? body.lang : reqLang;
+
   const target = (body.target ?? "").trim();
-  if (!target) return json({ ok: false, error: "Falta target" }, 400);
+  if (!target)
+    return json({ ok: false, error: t("error.missingTarget", finalLang) }, 400);
 
   const threshold = typeof body.threshold === "number" ? body.threshold : 85;
   const inclusiveWeather = body.inclusiveWeather !== false; // default true
@@ -111,7 +126,6 @@ export const POST: APIRoute = async ({ request }) => {
     typeof body.badGapMid === "number" && body.badGapMid >= 4 && body.badGapMid <= 30
       ? body.badGapMid
       : 10;
-  const lang: Lang = body.lang === "es" ? "es" : "en";       // default en
 
   let start: Date | null;
   let end: Date | null;
@@ -159,6 +173,9 @@ export const POST: APIRoute = async ({ request }) => {
       darkByTelescope: 0,
       transitTotal: allRows.length,
       transitKept: 0,
+      sequenceStart: "",
+      sequenceEnd: "",
+      sequenceMinutes: 0,
     } satisfies PreviewResponse);
   }
 
@@ -191,6 +208,9 @@ export const POST: APIRoute = async ({ request }) => {
       darkByTelescope: 0,
       transitTotal: scopedRows.length,
       transitKept: 0,
+      sequenceStart: "",
+      sequenceEnd: "",
+      sequenceMinutes: 0,
     } satisfies PreviewResponse);
   }
 
@@ -211,7 +231,7 @@ export const POST: APIRoute = async ({ request }) => {
     inclusiveWeather,
     badGapMid,
     weatherSensitive: true,
-    lang,
+    lang: finalLang,
   });
 
   // 4. Fetch Dark-C.
@@ -256,7 +276,7 @@ export const POST: APIRoute = async ({ request }) => {
     for (const r of removed) {
       finalDiscarded.push({
         record: r,
-        reasons: [t("reason.noDarks", lang)],
+        reasons: [t("reason.noDarks", finalLang)],
         gapPrev: null,
         gapNext: null,
       });
@@ -282,6 +302,26 @@ export const POST: APIRoute = async ({ request }) => {
   const transitDiscarded = finalDiscarded
     .filter((d) => transitRows.some((r) => r.fits === d.record.fits))
     .slice(0, 50);
+
+  // Ventana temporal de la secuencia final: del primer al último frame
+  // que pasa todos los filtros (weather + gap + darks). Ordenamos por
+  // datetime UTC para que la duración sea correcta aunque la secuencia
+  // cruce medianoche. Si no hay frames válidos, devolvemos strings vacíos.
+  let sequenceStart = "";
+  let sequenceEnd = "";
+  let sequenceMinutes = 0;
+  if (finalKept.length > 0) {
+    const sortedByTime = [...finalKept].sort(
+      (a, b) => parseDt(a.datetime).getTime() - parseDt(b.datetime).getTime(),
+    );
+    sequenceStart = sortedByTime[0].datetime;
+    sequenceEnd = sortedByTime[sortedByTime.length - 1].datetime;
+    sequenceMinutes = Math.round(
+      (parseDt(sequenceEnd).getTime() -
+        parseDt(sequenceStart).getTime()) /
+        60000,
+    );
+  }
 
   // Etiqueta de rango (formato DD-MM-YYYY para mostrar al usuario;
   // el ZIP sigue usando YYYYMMDD para la estructura de carpetas).
@@ -360,5 +400,8 @@ export const POST: APIRoute = async ({ request }) => {
     transitTotal: transitRows.length,
     transitKept: finalKept.length,
     darkDebug,
+    sequenceStart,
+    sequenceEnd,
+    sequenceMinutes,
   } satisfies PreviewResponse);
 };

@@ -8,6 +8,7 @@
  * directamente desde otro origen.
  */
 import type { APIRoute } from "astro";
+import { t, getReqLang } from "@/lib/i18n";
 
 export const prerender = false;
 
@@ -23,12 +24,13 @@ function bad(msg: string, status = 400): Response {
   });
 }
 
-export const GET: APIRoute = async ({ params }) => {
+export const GET: APIRoute = async ({ params, request }) => {
+  const lang = getReqLang(request);
   const file = params.file;
-  if (!file) return bad("Falta parámetro 'file'");
-  if (typeof file !== "string") return bad("Parámetro 'file' inválido");
+  if (!file) return bad(t("error.missingFileParam", lang));
+  if (typeof file !== "string") return bad(t("error.invalidFileParam", lang));
   if (!/^[A-Za-z0-9._\-]+\.FITS$/.test(file)) {
-    return bad("Nombre de archivo no válido", 400);
+    return bad(t("error.invalidFilename", lang), 400);
   }
 
   const url = MO_FITS_BASE + file;
@@ -38,7 +40,7 @@ export const GET: APIRoute = async ({ params }) => {
       signal: AbortSignal.timeout(120_000),
     });
     if (!upstream.ok || !upstream.body) {
-      return bad(`MO devolvió ${upstream.status}`, 502);
+      return bad(t("error.moStatus", lang, { status: upstream.status }), 502);
     }
     return new Response(upstream.body, {
       status: 200,
@@ -52,7 +54,12 @@ export const GET: APIRoute = async ({ params }) => {
       },
     });
   } catch (err) {
-    return bad(`Error al obtener FITS: ${err instanceof Error ? err.message : "?"}`, 502);
+    return bad(
+      t("error.fetchFits", lang, {
+        msg: err instanceof Error ? err.message : "?",
+      }),
+      502,
+    );
   }
 };
 

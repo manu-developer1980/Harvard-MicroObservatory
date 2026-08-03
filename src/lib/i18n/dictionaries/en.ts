@@ -73,6 +73,10 @@ export const en = {
   "summary.transitTotal": "Transit images analyzed: {count}",
   "summary.transitKept": "Transit images passing filters: {count}",
   "summary.darks": "Dark-C frames for the telescope: {count} (in {dates} dates)",
+  "summary.sequence":
+    "Sequence window: {start} → {end} UTC ({duration})",
+  "summary.sequenceHint":
+    "Tip: a typical exoplanet transit lasts 1–4 h. If your window is much shorter or off-centre, the light curve will be partial.",
   "summary.empty":
     "No dates pass the current filters. Try relaxing the threshold or the date range.",
 
@@ -105,6 +109,25 @@ export const en = {
   "error.noTelescope": "Pick a telescope first",
   "error.noFiles": "There are no files to download",
   "error.generic": "Error: {msg}",
+
+  // Server-side error messages (API responses + thrown errors)
+  "error.invalidJson": "Invalid JSON",
+  "error.missingTarget": "Missing 'target' field",
+  "error.invalidDate": "Invalid date",
+  "error.invalidDateFormat":
+    "Invalid date: {value} (expected DD-MM-YYYY or YYYY-MM-DD)",
+  "error.invalidMonth": "Invalid month in date: {value}",
+  "error.fetchTargetList":
+    "Could not fetch the target listing from MicroObservatory",
+  "error.targetNoImages": "Target '{target}' has no images",
+  "error.noRowsParsed": "No rows parsed for {target}",
+  "error.missingFileParam": "Missing 'file' parameter",
+  "error.invalidFileParam": "Invalid 'file' parameter",
+  "error.invalidFilename": "Invalid filename",
+  "error.moStatus": "MO returned HTTP {status}",
+  "error.fetchFits": "Error fetching FITS: {msg}",
+  "error.targetsFetch":
+    "Could not fetch the target list from MicroObservatory",
 
   "footer.credit": "made by",
   "footer.datasrc":

@@ -3,14 +3,12 @@
 // parseada en tiempo real del desplegable oficial de la página del archivo.
 //
 // Caché: ninguna a propósito. El endpoint es barato (~50 KB de HTML) y
-// la UI lo cachea 5 min en memoria. Si MO añade/quita targets, los
+// la UI lo refresca cada 60 s en memoria. Si MO añade/quita targets, los
 // usuarios los ven al recargar o al cumplirse el intervalo.
-//
-// Si MO no responde (timeout, 5xx, red), devolvemos { ok: false } para
-// que la UI use el fallback estático de src/lib/targets.ts.
 
 import type { APIRoute } from "astro";
 import * as cheerio from "cheerio";
+import { t, getReqLang } from "@/lib/i18n";
 
 const MO_URL =
   "https://waps.cfa.harvard.edu/microobservatory/MOImageDirectory/ImageDirectory.php";
@@ -50,7 +48,8 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ request }) => {
+  const lang = getReqLang(request);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -60,7 +59,7 @@ export const GET: APIRoute = async () => {
     });
     if (!res.ok) {
       return jsonResponse(
-        { ok: false, error: `MO responded ${res.status}` },
+        { ok: false, error: t("error.moStatus", lang, { status: res.status }) },
         502,
       );
     }
@@ -90,7 +89,10 @@ export const GET: APIRoute = async () => {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ ok: false, error: msg }, 500);
+    return jsonResponse(
+      { ok: false, error: t("error.targetsFetch", lang) + `: ${msg}` },
+      500,
+    );
   } finally {
     clearTimeout(timer);
   }

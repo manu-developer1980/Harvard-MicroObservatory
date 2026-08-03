@@ -60,6 +60,9 @@ type PreviewResponse = {
       matchedScope: boolean;
     }>;
   };
+  sequenceStart: string;
+  sequenceEnd: string;
+  sequenceMinutes: number;
 };
 
 type DownloadProgress = {
@@ -116,6 +119,22 @@ function gapLabelKey(g: number): string {
 
 function gapLabel(g: number, lang: Lang): string {
   return i18n(gapLabelKey(g), lang);
+}
+
+// Formatea una duración en minutos a un string compacto legible:
+//   0      -> "—"
+//   < 60   -> "Ymin"
+//   exacto -> "Xh"
+//   mixto  -> "Xh Ymin"
+// Sirve para mostrar de un vistazo la ventana temporal de la secuencia
+// y compararla con la duración típica de un tránsito exoplanetario (1-4h).
+function formatDuration(min: number): string {
+  if (!min || min <= 0) return "—";
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  const m = min - h * 60;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}min`;
 }
 
 async function fetchPreview(body: object): Promise<PreviewResponse> {
@@ -881,6 +900,22 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                 dates: preview.darkByTelescope,
               })}
             </li>
+            {preview.sequenceStart && (
+              <li>
+                {i18n("summary.sequence", lang, {
+                  start: preview.sequenceStart,
+                  end: preview.sequenceEnd,
+                  duration: formatDuration(preview.sequenceMinutes),
+                })}
+                {(preview.sequenceMinutes < 60 ||
+                  preview.sequenceMinutes > 480) && (
+                  <small className="hint">
+                    {" "}
+                    {i18n("summary.sequenceHint", lang)}
+                  </small>
+                )}
+              </li>
+            )}
           </ul>
 
           {preview.transitByDate.length === 0 ? (

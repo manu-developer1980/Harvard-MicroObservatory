@@ -41,6 +41,23 @@ export function detectLangFromHeader(header: string | null): Lang {
   return "en";
 }
 
+/**
+ * Resuelve el idioma de una request entrante en una API route.
+ * Prioridad: ?lang= query param > Accept-Language header > "en".
+ * Útil para endpoints GET donde el cliente no puede enviar body
+ * (p.ej. /api/targets, /api/fits/[file]).
+ */
+export function getReqLang(request: Request): Lang {
+  try {
+    const url = new URL(request.url);
+    const q = url.searchParams.get("lang");
+    if (q === "es" || q === "en") return q;
+  } catch {
+    /* ignore */
+  }
+  return detectLangFromHeader(request.headers.get("accept-language"));
+}
+
 export function getStoredLang(): Lang | null {
   if (typeof localStorage === "undefined") return null;
   const v = localStorage.getItem(STORAGE_KEY);

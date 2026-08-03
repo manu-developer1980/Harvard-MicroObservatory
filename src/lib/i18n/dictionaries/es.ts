@@ -72,6 +72,10 @@ export const es = {
   "summary.transitTotal": "Tránsito total analizado: {count}",
   "summary.transitKept": "Tránsito que pasa filtros: {count}",
   "summary.darks": "Dark-C del telescopio: {count} (en {dates} fechas)",
+  "summary.sequence":
+    "Ventana de la secuencia: {start} → {end} UTC ({duration})",
+  "summary.sequenceHint":
+    "Tip: un tránsito exoplanetario típico dura 1–4 h. Si tu ventana es mucho más corta o está descentrada, la curva de luz saldrá parcial.",
   "summary.empty":
     "No hay fechas que cumplan los filtros. Prueba a relajar el umbral o el rango de fechas.",
 
@@ -104,6 +108,25 @@ export const es = {
   "error.noTelescope": "Selecciona un telescopio",
   "error.noFiles": "No hay archivos para descargar",
   "error.generic": "Error: {msg}",
+
+  // Mensajes de error del servidor (respuestas API + errores lanzados)
+  "error.invalidJson": "JSON inválido",
+  "error.missingTarget": "Falta el campo 'target'",
+  "error.invalidDate": "Fecha inválida",
+  "error.invalidDateFormat":
+    "Fecha inválida: {value} (esperado DD-MM-YYYY o YYYY-MM-DD)",
+  "error.invalidMonth": "Mes inválido en la fecha: {value}",
+  "error.fetchTargetList":
+    "No se pudo obtener el listado del target desde MicroObservatory",
+  "error.targetNoImages": "El target '{target}' no tiene imágenes",
+  "error.noRowsParsed": "No se parsearon filas de {target}",
+  "error.missingFileParam": "Falta el parámetro 'file'",
+  "error.invalidFileParam": "Parámetro 'file' inválido",
+  "error.invalidFilename": "Nombre de archivo no válido",
+  "error.moStatus": "MO devolvió HTTP {status}",
+  "error.fetchFits": "Error al obtener FITS: {msg}",
+  "error.targetsFetch":
+    "No se pudo obtener la lista de targets desde MicroObservatory",
 
   "footer.credit": "hecho por",
   "footer.datasrc":

@@ -313,7 +313,10 @@ export function fromAnyDateFormat(s: string): string | null {
  *   - "DD-MM-YYYY:DD-MM-YYYY" o YYYY-MM-DD:YYYY-MM-DD  -> rango
  * El separador `:` puede ir con o sin espacios alrededor.
  */
-export function parseDateArg(s: string): { start: Date | null; end: Date | null } {
+export function parseDateArg(
+  s: string,
+  lang: Lang = "en",
+): { start: Date | null; end: Date | null } {
   if (!s || !s.trim()) return { start: null, end: null };
   const trimmed = s.trim();
   const parseOne = (str: string): Date | null => {
@@ -322,7 +325,7 @@ export function parseDateArg(s: string): { start: Date | null; end: Date | null 
     const yyyymmdd = fromAnyDateFormat(t);
     if (!yyyymmdd) {
       throw new Error(
-        `Fecha inválida: ${str} (esperado DD-MM-YYYY o YYYY-MM-DD)`,
+        i18n("error.invalidDateFormat", lang, { value: str }),
       );
     }
     return new Date(
