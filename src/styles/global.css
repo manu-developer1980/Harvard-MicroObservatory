@@ -158,6 +158,28 @@ label.checkbox > span {
   border-radius: 3px;
 }
 
+.source-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+.source-live {
+  color: var(--ok);
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid var(--ok);
+}
+.source-fallback {
+  color: var(--err);
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid var(--err);
+}
+
 .hint {
   color: var(--text-dim);
   font-weight: normal;

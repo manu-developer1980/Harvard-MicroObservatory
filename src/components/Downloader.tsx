@@ -97,6 +97,12 @@ export default function Downloader() {
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
 
+  // Lista de targets: inicializada con el fallback estático, se refresca
+  // desde /api/targets (que parsea el desplegable oficial de MO) al
+  // montar el componente y cada 5 min.
+  const [targets, setTargets] = useState<string[]>([...AVAILABLE_TARGETS]);
+  const [targetsSource, setTargetsSource] = useState<"live" | "fallback" | "loading">("loading");
+
   const [telescopes, setTelescopes] = useState<string[] | null>(null);
   const [filters, setFilters] = useState<string[] | null>(null);
   const [filter, setFilter] = useState("");
@@ -168,6 +174,37 @@ export default function Downloader() {
     if (s) return s;
     return `:${e}`;
   }
+
+  // Refresca la lista de targets al montar y cada 5 min.
+  // Si /api/targets falla (MO caído, timeout), mantiene el fallback estático
+  // para que el select no quede vacío.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/targets");
+        const data = await res.json();
+        if (cancelled) return;
+        if (data?.ok && Array.isArray(data.targets) && data.targets.length > 0) {
+          setTargets(data.targets);
+          setTargetsSource("live");
+        } else {
+          setTargetsSource("fallback");
+        }
+      } catch {
+        if (!cancelled) setTargetsSource("fallback");
+      }
+    }
+
+    refresh();
+    timer = setInterval(refresh, 5 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
 
   // Paso 1: descubrir telescopios cuando cambia el target
   useEffect(() => {
@@ -350,17 +387,28 @@ export default function Downloader() {
       <fieldset disabled={progress.phase === "downloading" || progress.phase === "zipping"}>
         <div className="row">
           <label>
-            <span>Exoplaneta</span>
-            <select
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-            >
-              {AVAILABLE_TARGETS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <span>
+              Exoplaneta{" "}
+              {targetsSource === "live" ? (
+                <small className="source-tag source-live">live</small>
+              ) : targetsSource === "fallback" ? (
+                <small className="source-tag source-fallback">offline · fallback</small>
+              ) : null}
+            </span>
+            {targets.length === 0 ? (
+              <input type="text" value="(sin targets)" disabled />
+            ) : (
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              >
+                {targets.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
 
           <label className="date-range">
