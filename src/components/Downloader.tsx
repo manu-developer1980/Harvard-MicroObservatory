@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { AVAILABLE_TARGETS } from "@/lib/targets";
 import {
   fromAnyDateFormat,
   toDDMMYYYY,
@@ -97,11 +96,16 @@ export default function Downloader() {
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
 
-  // Lista de targets: inicializada con el fallback estático, se refresca
-  // desde /api/targets (que parsea el desplegable oficial de MO) al
-  // montar el componente y cada 5 min.
-  const [targets, setTargets] = useState<string[]>([...AVAILABLE_TARGETS]);
-  const [targetsSource, setTargetsSource] = useState<"live" | "fallback" | "loading">("loading");
+  // Lista de targets: SIEMPRE viene de /api/targets (que parsea el
+  // desplegable oficial de MO en tiempo real). No hay lista fija.
+  // - targets = [] hasta que el primer fetch termine
+  // - targetsState controla el badge junto a la label
+  // - lastUpdate se muestra para que el usuario sepa cuán fresca es la lista
+  const [targets, setTargets] = useState<string[]>([]);
+  const [targetsState, setTargetsState] = useState<
+    "loading" | "live" | "error"
+  >("loading");
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   const [telescopes, setTelescopes] = useState<string[] | null>(null);
   const [filters, setFilters] = useState<string[] | null>(null);
@@ -175,9 +179,11 @@ export default function Downloader() {
     return `:${e}`;
   }
 
-  // Refresca la lista de targets al montar y cada 5 min.
-  // Si /api/targets falla (MO caído, timeout), mantiene el fallback estático
-  // para que el select no quede vacío.
+  // Refresca la lista de targets al montar y cada 60 s. Sin fallback
+  // estático: si MO no responde, mostramos error + botón de reintento.
+  // Si ya teníamos una lista cargada y un refresh falla, conservamos la
+  // lista anterior pero marcamos el estado como "error" para que el
+  // usuario sepa que está viendo datos potencialmente obsoletos.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -189,22 +195,41 @@ export default function Downloader() {
         if (cancelled) return;
         if (data?.ok && Array.isArray(data.targets) && data.targets.length > 0) {
           setTargets(data.targets);
-          setTargetsSource("live");
+          setTargetsState("live");
+          setLastUpdate(new Date());
         } else {
-          setTargetsSource("fallback");
+          setTargetsState("error");
         }
       } catch {
-        if (!cancelled) setTargetsSource("fallback");
+        if (!cancelled) setTargetsState("error");
       }
     }
 
     refresh();
-    timer = setInterval(refresh, 5 * 60 * 1000);
+    timer = setInterval(refresh, 60 * 1000);
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);
     };
   }, []);
+
+  // Refresco manual disparado por el botón al lado del select.
+  const handleTargetsRefresh = async () => {
+    setTargetsState("loading");
+    try {
+      const res = await fetch("/api/targets");
+      const data = await res.json();
+      if (data?.ok && Array.isArray(data.targets) && data.targets.length > 0) {
+        setTargets(data.targets);
+        setTargetsState("live");
+        setLastUpdate(new Date());
+      } else {
+        setTargetsState("error");
+      }
+    } catch {
+      setTargetsState("error");
+    }
+  };
 
   // Paso 1: descubrir telescopios cuando cambia el target
   useEffect(() => {
@@ -386,29 +411,64 @@ export default function Downloader() {
 
       <fieldset disabled={progress.phase === "downloading" || progress.phase === "zipping"}>
         <div className="row">
-          <label>
+          <label className="targets-field">
             <span>
               Exoplaneta{" "}
-              {targetsSource === "live" ? (
+              {targetsState === "live" ? (
                 <small className="source-tag source-live">live</small>
-              ) : targetsSource === "fallback" ? (
-                <small className="source-tag source-fallback">offline · fallback</small>
-              ) : null}
+              ) : targetsState === "error" ? (
+                <small className="source-tag source-fallback">error</small>
+              ) : (
+                <small className="source-tag source-loading">cargando…</small>
+              )}
             </span>
             {targets.length === 0 ? (
-              <input type="text" value="(sin targets)" disabled />
+              <div className="targets-empty">
+                {targetsState === "error" ? (
+                  <>
+                    <span>No se pudo cargar la lista desde MicroObservatory.</span>
+                    <button
+                      type="button"
+                      className="targets-retry"
+                      onClick={handleTargetsRefresh}
+                    >
+                      Reintentar
+                    </button>
+                  </>
+                ) : (
+                  <span>⟳ Cargando targets desde MO…</span>
+                )}
+              </div>
             ) : (
-              <select
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-              >
-                {targets.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <div className="targets-row">
+                <select
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  disabled={targetsState === "error"}
+                >
+                  {targets.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="targets-refresh"
+                  onClick={handleTargetsRefresh}
+                  disabled={targetsState === "loading"}
+                  aria-label="Refrescar lista de targets"
+                  title="Refrescar lista (también se actualiza cada 60 s)"
+                >
+                  ⟳
+                </button>
+              </div>
             )}
+            {lastUpdate && targetsState === "live" ? (
+              <small className="last-update">
+                Actualizado a las {lastUpdate.toLocaleTimeString()}
+              </small>
+            ) : null}
           </label>
 
           <label className="date-range">

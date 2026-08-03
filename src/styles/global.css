@@ -179,6 +179,88 @@ label.checkbox > span {
   background: rgba(248, 113, 113, 0.1);
   border: 1px solid var(--err);
 }
+.source-loading {
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+/* Live targets field */
+.targets-field {
+  min-width: 0;
+}
+
+.targets-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  align-items: stretch;
+  min-width: 0;
+}
+.targets-row select { min-width: 0; }
+
+.targets-refresh {
+  width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, transform 0.4s;
+}
+.targets-refresh:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.targets-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.targets-refresh.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+.targets-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.targets-retry {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.targets-retry:hover { filter: brightness(1.1); }
+
+.last-update {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 
 .hint {
   color: var(--text-dim);
