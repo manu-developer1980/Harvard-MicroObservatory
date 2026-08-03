@@ -281,6 +281,15 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   );
   const transitCheckTokenRef = useRef(0);
 
+  // Anti auto-fetch en el mount: el target arranca con un valor por
+  // defecto ("Qatar-6") y el useEffect de "Paso 1" tiene [target] como
+  // dependencia, lo que dispara un fetchPreview automático al cargar la
+  // página — antes de que el usuario haya hecho nada. Eso generaba un
+  // error/loading state no deseado al primer render. Marcamos el primer
+  // ciclo como "skip" para que solo se ejecute cuando el usuario cambie
+  // el target interactivamente.
+  const targetChangeSkipRef = useRef(true);
+
   const dateStartRef = useRef<HTMLInputElement>(null);
   const dateEndRef = useRef<HTMLInputElement>(null);
 
@@ -393,6 +402,13 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
 
   // Paso 1: descubrir telescopios cuando cambia el target
   useEffect(() => {
+    // Saltamos la primera ejecución: es la del mount inicial con el
+    // target por defecto. No queremos lanzar un fetchPreview antes de
+    // que el usuario haya interactuado con la página.
+    if (targetChangeSkipRef.current) {
+      targetChangeSkipRef.current = false;
+      return;
+    }
     let cancelled = false;
     setTelescopes(null);
     setFilters(null);
