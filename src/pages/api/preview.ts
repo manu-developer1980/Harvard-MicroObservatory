@@ -68,13 +68,15 @@ type PreviewResponse = {
   transitKept: number;
   darkDebug?: {
     totalParsed: number;           // todos los darks parseados (sin filtro de fecha)
-    inRange: number;               // darks dentro del rango solicitado
+    selectedTelescope: string;      // telescopio elegido por el usuario
+    inRange: number;               // darks (de cualquier scope) dentro del rango
     byDate: Array<{                // detalle por fecha en el rango
       date: string;                // YYYYMMDD
       count: number;
       telescopes: string[];
       filters: string[];
       times: string[];             // HH:MM:SS de cada dark
+      matchedScope: boolean;       // true si hay dark del telescopio elegido
     }>;
   };
 };
@@ -209,21 +211,25 @@ export const POST: APIRoute = async ({ request }) => {
   });
 
   // 4. Fetch Dark-C.
-  // IMPORTANTE: NO filtramos por telescopio ni por filtro de captura, solo
-  // por fecha. Razón: el script Python original (download_mo.py) hacía
-  // match solo por "mismo telescopio + misma fecha", y aun así fallaba en
-  // algunos casos porque MO rota telescopios entre observaciones. Si el
-  // usuario eligió un telescopio para el tránsito pero los darks de esa
-  // noche los tomó otro, descartar todos los darks es demasiado estricto.
-  // Por transparencia, el campo `darkDebug` lista los darks que SÍ existen
-  // en el rango, para que el usuario pueda verificar la calibración.
+  // CRÍTICO: los darks deben ser del MISMO telescopio que las lights.
+  // "Dark-C" en MO es solo el nombre del target; la "C" es la inicial del
+  // telescopio (p.ej. "Telescope-C" o "C"). Mezclar darks de un scope con
+  // lights de otro produce calibración incorrecta (diferente temperatura
+  // de sensor, respuesta distinta, etc.). El campo `telescope` de cada
+  // fila (parseado del CSV, índice 17) es la fuente de verdad.
+  // NO filtramos por filtro de captura: el filtro afecta a la transmitancia
+  // óptica, no a la corriente de oscuridad del sensor, así que el mismo
+  // dark sirve para V, R, I, etc. (el script Python original tampoco
+  // filtraba por filtro).
   const darkHtml = await fetchHtml({ target: "Dark-C-", sortRange: "500" });
   let allDarkRows: ImageRecord[] = [];
   if (darkHtml && darkHtml !== "") {
     allDarkRows = parseRows(darkHtml);
   }
-  // Subconjunto: solo los del rango consultado (lo que se usará de verdad)
-  const darkRows = filterByDateRange(allDarkRows, { start, end });
+  // Aplicamos solo el filtro de telescopio (NO capture filter, NO fecha aún).
+  const darkForScope = filterByTelescope(allDarkRows, telescope);
+  // Ahora sí: rango de fechas.
+  const darkRows = filterByDateRange(darkForScope, { start, end });
 
   // 5. Intersección de fechas (tránsito válido + darks existentes)
   const transitDates = new Set(kept.map((r) => dateKey(parseDt(r.datetime))));
@@ -286,17 +292,19 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Debug de darks: lista por fecha, con telescopios/filtros/horas presentes.
   // Sirve para que el usuario vea qué hay realmente disponible y por qué
-  // un dark concreto podría no estar matcheando.
-  const darkByDateDebugMap = new Map<
+  // un dark concreto podría no estar matcheando. Marca también qué fechas
+  // tienen dark del telescopio elegido (matchedScope) frente a las que
+  // solo tienen darks de otros telescopios (no usables para calibración).
+  const allDarkByDateMap = new Map<
     string,
     { telescopes: Set<string>; filters: Set<string>; times: string[] }
   >();
-  for (const r of darkRows) {
+  for (const r of allDarkRows) {
     const k = dateKey(parseDt(r.datetime));
-    let entry = darkByDateDebugMap.get(k);
+    let entry = allDarkByDateMap.get(k);
     if (!entry) {
       entry = { telescopes: new Set(), filters: new Set(), times: [] };
-      darkByDateDebugMap.set(k, entry);
+      allDarkByDateMap.set(k, entry);
     }
     if (r.telescope) entry.telescopes.add(r.telescope);
     if (r.filter) entry.filters.add(r.filter);
@@ -307,16 +315,27 @@ export const POST: APIRoute = async ({ request }) => {
       ).padStart(2, "0")}:${String(t.getUTCSeconds()).padStart(2, "0")}`,
     );
   }
+  const telescopeLower = telescope.toLowerCase();
   const darkDebug = {
     totalParsed: allDarkRows.length,
+    selectedTelescope: telescope,
     inRange: darkRows.length,
-    byDate: Array.from(darkByDateDebugMap.entries())
+    byDate: Array.from(allDarkByDateMap.entries())
+      .filter(([date]) => {
+        // Solo fechas en el rango solicitado
+        if (start && date < dateKey(start)) return false;
+        if (end && date > dateKey(end)) return false;
+        return true;
+      })
       .map(([date, e]) => ({
         date,
         count: e.times.length,
         telescopes: Array.from(e.telescopes).sort(),
         filters: Array.from(e.filters).sort(),
         times: e.times.sort(),
+        matchedScope: Array.from(e.telescopes).some(
+          (tt) => tt.toLowerCase() === telescopeLower,
+        ),
       }))
       .sort((a, b) => a.date.localeCompare(b.date)),
   };

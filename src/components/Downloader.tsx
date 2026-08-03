@@ -43,6 +43,7 @@ type PreviewResponse = {
   transitKept: number;
   darkDebug?: {
     totalParsed: number;
+    selectedTelescope: string;
     inRange: number;
     byDate: Array<{
       date: string;
@@ -50,6 +51,7 @@ type PreviewResponse = {
       telescopes: string[];
       filters: string[];
       times: string[];
+      matchedScope: boolean;
     }>;
   };
 };
@@ -874,19 +876,23 @@ export default function Downloader() {
           {preview.darkDebug && preview.darkDebug.byDate.length > 0 && (
             <details>
               <summary>
-                Darks encontrados ({preview.darkDebug.inRange} en rango de{" "}
-                {preview.darkDebug.totalParsed} totales — agrupados por fecha)
+                Darks disponibles ({preview.darkDebug.inRange} totales en
+                rango de {preview.darkDebug.totalParsed} parseados — telescopio
+                elegido: <code>{preview.darkDebug.selectedTelescope || "—"}</code>)
               </summary>
               <p className="hint">
-                Listado completo de Dark-C parseados de MO. Si una fecha del
-                tránsito aparece aquí con telescopio y filtro, el dark debería
-                estar incluido en la descarga.
+                Listado de Dark-C que existen en MO en tu rango de fechas. Las
+                filas marcadas con ✓ tienen al menos un dark del telescopio
+                elegido, así que se usarán para calibrar. Si una fecha muestra
+                darks de OTROS telescopios pero no del tuyo, no son usables
+                (mezclar scopes produce calibración incorrecta).
               </p>
               <table className="dark-debug">
                 <thead>
                   <tr>
                     <th>Fecha</th>
                     <th>#</th>
+                    <th>¿Tu scope?</th>
                     <th>Telescopios</th>
                     <th>Filtros</th>
                     <th>Horas (UTC)</th>
@@ -894,13 +900,27 @@ export default function Downloader() {
                 </thead>
                 <tbody>
                   {preview.darkDebug.byDate.map((d) => (
-                    <tr key={d.date}>
+                    <tr
+                      key={d.date}
+                      className={d.matchedScope ? "ok" : "mismatch"}
+                    >
                       <td>{toDDMMYYYY(d.date)}</td>
                       <td>{d.count}</td>
+                      <td>{d.matchedScope ? "✓" : "✗"}</td>
                       <td>
                         {d.telescopes.length === 0
                           ? "—"
-                          : d.telescopes.join(", ")}
+                          : d.telescopes.map((t, i) => {
+                              const isMatch =
+                                t.toLowerCase() ===
+                                preview.darkDebug!.selectedTelescope.toLowerCase();
+                              return (
+                                <span key={i}>
+                                  {i > 0 ? ", " : ""}
+                                  {isMatch ? <strong>{t}</strong> : t}
+                                </span>
+                              );
+                            })}
                       </td>
                       <td>
                         {d.filters.length === 0 ? "—" : d.filters.join(", ")}
