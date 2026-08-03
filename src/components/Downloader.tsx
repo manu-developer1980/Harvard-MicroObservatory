@@ -228,10 +228,16 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     return getStoredLang() ?? initialLang ?? "en";
   });
 
-  // Cuando cambia lang, persistirlo y reflejarlo en <html lang="...">
+  // Cuando cambia lang, persistirlo y reflejarlo en <html lang="...">.
+  // También emitimos un CustomEvent `mo:lang` para que el Footer (que
+  // vive como componente hermano) re-renderice con el nuevo idioma.
+  // (No podemos levantar el estado a un Context sin refactor mayor, y
+  // un evento es lo más simple para sincronizar dos islas React
+  // independientes en la misma página.)
   useEffect(() => {
     setStoredLang(lang);
     document.documentElement.lang = lang;
+    window.dispatchEvent(new CustomEvent<Lang>("mo:lang", { detail: lang }));
   }, [lang]);
 
   function setLang(next: Lang) {
