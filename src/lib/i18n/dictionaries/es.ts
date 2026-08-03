@@ -156,7 +156,7 @@ export const es = {
 
   "footer.credit": "hecho por",
   "footer.datasrc":
-    "Datos: {moLink} · Filtrado: weather ≥ threshold + continuidad temporal · Darks: solo si existen en la fecha",
+    "Datos: {moLink} · Filtrado: cielo claro ≥ umbral + continuidad temporal · Darks: solo si existen en la fecha",
   "footer.moName": "MicroObservatory @ Harvard CFA",
   "footer.igAria": "Perfil de Instagram de @manu_astrofoto",
 
