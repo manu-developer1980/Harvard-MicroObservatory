@@ -56,7 +56,7 @@ publish dir `dist`).
 | Método | Path | Descripción |
 |---|---|---|
 | `POST` | `/api/preview` | Body: `{target, date?, threshold?, telescope?}`. Devuelve JSON con `transitByDate`, `transitDiscarded`, telescopios descubiertos, etc. |
-| `GET` | `/api/fits/{filename}` | Proxy de `https://mo-www.cfa.harvard.edu/ImageDirectory/{filename}`. Cabeceras CORS abiertas. |
+| `GET` | `/api/fits/{filename}` | Proxy de `https://mo-www.cfa.harvard.edu/ImageDirectory/{filename}`. CORS con allowlist (`ALLOWED_FITS_ORIGINS`); see "Security" abajo. |
 | `OPTIONS` | `/api/fits/{filename}` | Pre-flight CORS. |
 
 ## Reglas de filtrado (idénticas al script Python)
@@ -137,3 +137,27 @@ La app permite subir la misma secuencia de FITS a una carpeta
   sesión con el botón "Desconectar" tras subir.
 - **No** se reintenta automáticamente en subidas fallidas: el error
   se muestra en la barra de progreso y puedes volver a pulsar "Subir".
+
+## Seguridad
+
+- **Cabeceras HTTP**: `src/middleware.ts` aplica `X-Content-Type-Options`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`
+  y `Permissions-Policy` (cierra APIs no usadas) a TODAS las respuestas.
+  Las páginas HTML añaden además una CSP estricta.
+- **CORS del proxy FITS**: `/api/fits/[file]` solo espeja el `Origin` del
+  request si está en la allowlist `ALLOWED_FITS_ORIGINS` (server-only,
+  deny-by-default en producción). `Vary: Origin` se añade siempre para
+  evitar cache poisoning en la CDN. Definir en `.env` o en
+  *Netlify → Environment variables*.
+- **Rate limiting**: Netlify Edge Function (en `netlify/edge-functions/`)
+  con counter en Netlify Blobs. Por defecto, 30 req/min por IP en
+  `/api/preview` y 20 req/min en `/api/transit-check`. Configurable con
+  `RATE_LIMIT_PREVIEW_MAX`, `RATE_LIMIT_TRANSIT_CHECK_MAX`,
+  `RATE_LIMIT_WINDOW_SEC`. Si excede, devuelve `429 Too Many Requests`
+  con `Retry-After`. Fail-open si Blobs no responde (preferible a tirar
+  la API por un blip del storage).
+- **Validación de input**: `src/lib/schemas.ts` valida los body de los
+  endpoints POST con Zod (charset allowlist, `.strict()` rechaza claves
+  desconocidas, sin coerción de tipos).
+- **ADQL escape**: `src/lib/sql-escape.ts` neutraliza wildcards de LIKE
+  (`%`, `_`) y comillas; la query usa `ESCAPE '\'`.

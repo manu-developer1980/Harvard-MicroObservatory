@@ -13,5 +13,5 @@
     }
   },
   "include": ["src/**/*", "netlify/**/*", "astro.config.mjs"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "netlify/edge-functions/rate-limit.ts"]
 }

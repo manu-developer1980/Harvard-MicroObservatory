@@ -1,8 +1,23 @@
 [build]
-  command = "npm run build"
-  publish = "dist"
+command = "npm run build"
+publish = "dist"
 
 # El adapter @astrojs/netlify ya publica las API routes de src/pages/api/
 # como Netlify Functions accesibles en /api/*. No hace falta redirect.
 [functions]
-  node_bundler = "esbuild"
+node_bundler = "esbuild"
+
+# Edge Functions: rate limiting en /api/preview y /api/transit-check.
+# La función vive en netlify/edge-functions/rate-limit.ts y se ejecuta
+# ANTES que la SSR function de Astro. Si excede el límite, devuelve
+# 429 directamente sin invocar Astro.
+# Ver src/lib/rate-limit.ts para el algoritmo y los env vars
+# (RATE_LIMIT_PREVIEW_MAX, RATE_LIMIT_TRANSIT_CHECK_MAX,
+# RATE_LIMIT_WINDOW_SEC).
+[[edge_functions]]
+path = "/api/preview"
+function = "rate-limit"
+
+[[edge_functions]]
+path = "/api/transit-check"
+function = "rate-limit"
