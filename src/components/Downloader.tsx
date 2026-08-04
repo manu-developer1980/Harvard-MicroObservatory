@@ -10,6 +10,13 @@ import {
   setStoredLang,
   type Lang,
 } from "@/lib/i18n";
+import {
+  getValidToken,
+  signIn as driveSignIn,
+  signOut as driveSignOut,
+  uploadSequenceToDrive,
+  type DriveFile,
+} from "@/lib/google-drive";
 
 // Importamos JSZip solo en el cliente (dentro del handler) para que el SSR
 // de Astro no intente evaluar el CJS de jszip (su entry usa `require()`).
@@ -17,6 +24,46 @@ type JSZipLike = {
   file: (path: string, data: Blob) => void;
   generateAsync: (opts: { type: "blob" }) => Promise<Blob>;
 };
+
+// Logo de Google Drive (triángulo oficial, no el "G" de Google).
+// Lo usamos inline para no añadir un asset binario al bundle.
+// Los colores coinciden con el branding público de Drive.
+function GoogleDriveIcon() {
+  return (
+    <svg
+      viewBox="0 0 87.3 78"
+      width="18"
+      height="16"
+      aria-hidden="true"
+      style={{ verticalAlign: "-3px", marginRight: "0.5rem" }}
+    >
+      <path
+        d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z"
+        fill="#0066da"
+      />
+      <path
+        d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-20.45 35.4c-.8 1.4-1.2 2.95-1.2 4.5h27.5z"
+        fill="#00ac47"
+      />
+      <path
+        d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z"
+        fill="#ea4335"
+      />
+      <path
+        d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z"
+        fill="#00832d"
+      />
+      <path
+        d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z"
+        fill="#2684fc"
+      />
+      <path
+        d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z"
+        fill="#ffba00"
+      />
+    </svg>
+  );
+}
 
 type DateGroup = {
   date: string;
@@ -122,8 +169,16 @@ type DownloadProgress = {
   total: number;
   done: number;
   current: string;
-  phase: "idle" | "downloading" | "zipping" | "done" | "error";
+  phase:
+    | "idle"
+    | "downloading"
+    | "zipping"
+    | "preparing"
+    | "uploading"
+    | "done"
+    | "error";
   errorMsg?: string;
+  operation?: "zip" | "drive";
 };
 
 const FITS_PROXY = "/api/fits/";
@@ -207,6 +262,25 @@ async function downloadFits(file: string): Promise<Blob> {
   const r = await fetch(FITS_PROXY + encodeURIComponent(file));
   if (!r.ok) throw new Error(`FITS ${file}: HTTP ${r.status}`);
   return r.blob();
+}
+
+// Construye la lista de archivos a descargar/subir a partir del preview,
+// replicando exactamente la estructura de carpetas que usa el ZIP:
+//   <date>/<fits>           para tránsitos
+//   <date>/darks/<fits>     para darks
+// Compartido por handleDownload y handleDriveUpload para que ambas
+// operaciones vean la misma selección.
+function buildAllFiles(preview: PreviewResponse): DriveFile[] {
+  const all: DriveFile[] = [];
+  for (const g of preview.transitByDate) {
+    for (const r of g.transit) {
+      all.push({ path: `${g.date}/${r.fits}`, file: r.fits });
+    }
+    for (const r of g.darks) {
+      all.push({ path: `${g.date}/darks/${r.fits}`, file: r.fits });
+    }
+  }
+  return all;
 }
 
 type DownloaderProps = {
@@ -296,6 +370,17 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // el target interactivamente.
   const targetChangeSkipRef = useRef(true);
 
+  // Google Drive: el token se persiste en localStorage desde
+  // google-drive.ts. Al montar comprobamos si sigue válido (1h de
+  // expiry) y lo reflejamos en estado. El token REAL usado al subir
+  // se vuelve a leer de storage en cada click de "Subir" para evitar
+  // carrera si expiró mientras el usuario leía el preview.
+  const [driveToken, setDriveToken] = useState<string | null>(null);
+  // URL a la carpeta raíz `EXOTIC/<target>/` tras una subida exitosa.
+  // null = no hemos subido nada en esta sesión.
+  const [driveDoneUrl, setDriveDoneUrl] = useState<string | null>(null);
+  const [driveBusy, setDriveBusy] = useState(false);
+
   const dateStartRef = useRef<HTMLInputElement>(null);
   const dateEndRef = useRef<HTMLInputElement>(null);
 
@@ -305,6 +390,13 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     if (dateStartRef.current) dateStartRef.current.value = "";
     if (dateEndRef.current) dateEndRef.current.value = "";
   }, [target]);
+
+  // Restaura la sesión de Google Drive al montar, si el token
+  // persistido en localStorage sigue siendo válido. Si está caducado,
+  // google-drive.ts lo borra y devuelve null.
+  useEffect(() => {
+    setDriveToken(getValidToken());
+  }, []);
 
   function openDatePicker(ref: React.RefObject<HTMLInputElement>) {
     const el = ref.current;
@@ -508,15 +600,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // Paso 3: descargar ZIP
   const handleDownload = async () => {
     if (!preview) return;
-    const allFiles: Array<{ path: string; file: string }> = [];
-    for (const g of preview.transitByDate) {
-      for (const r of g.transit) {
-        allFiles.push({ path: `${g.date}/${r.fits}`, file: r.fits });
-      }
-      for (const r of g.darks) {
-        allFiles.push({ path: `${g.date}/darks/${r.fits}`, file: r.fits });
-      }
-    }
+    const allFiles = buildAllFiles(preview);
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -527,6 +611,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
       done: 0,
       current: "",
       phase: "downloading",
+      operation: "zip",
     });
 
     // Import dinámico: jszip solo se carga en el navegador, no en SSR.
@@ -583,6 +668,96 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   const totalDarks =
     preview?.transitByDate.reduce((acc, g) => acc + g.darks.length, 0) ?? 0;
   const totalFiles = totalTransit + totalDarks;
+
+  // Abre el popup de Google para autorizar `drive.file` scope. Tras
+  // éxito, persiste el token (con su expiry) en localStorage y refleja
+  // el estado en memoria.
+  const handleDriveSignIn = async () => {
+    setErrMsg(null);
+    setDriveBusy(true);
+    try {
+      const tok = await driveSignIn();
+      setDriveToken(tok);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // "Sign-in cancelled" no es un error de cara al usuario.
+      if (!/cancelled/i.test(msg)) {
+        setErrMsg(i18n("drive.signInError", lang, { errorMsg: msg }));
+      }
+    } finally {
+      setDriveBusy(false);
+    }
+  };
+
+  const handleDriveSignOut = async () => {
+    setDriveBusy(true);
+    try {
+      await driveSignOut();
+    } catch {
+      /* si falla la revocación en Google, al menos limpiamos local */
+    }
+    setDriveToken(null);
+    setDriveDoneUrl(null);
+    setDriveBusy(false);
+  };
+
+  // Sube la misma lista de archivos que handleDownload a
+  // EXOTIC/<target>/.../ replicando la estructura del ZIP.
+  const handleDriveUpload = async () => {
+    if (!preview) return;
+    // Releemos el token del storage: podría haber expirado entre
+    // el sign-in y este click (1h). Si no hay token válido, pedimos
+    // re-auth silenciosamente.
+    let token = getValidToken();
+    if (!token) {
+      try {
+        token = await driveSignIn();
+        setDriveToken(token);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/cancelled/i.test(msg)) {
+          setErrMsg(i18n("drive.signInError", lang, { errorMsg: msg }));
+        }
+        return;
+      }
+    }
+    const allFiles = buildAllFiles(preview);
+    if (allFiles.length === 0) {
+      setErrMsg(i18n("error.noFiles", lang));
+      return;
+    }
+    setErrMsg(null);
+    setDriveDoneUrl(null);
+    setDriveBusy(true);
+    setProgress({
+      total: allFiles.length,
+      done: 0,
+      current: "",
+      phase: "preparing",
+      operation: "drive",
+    });
+    try {
+      const { rootFolderUrl } = await uploadSequenceToDrive(
+        token,
+        preview.target,
+        allFiles,
+        (p) => setProgress({ ...p, operation: "drive" }),
+      );
+      setDriveDoneUrl(rootFolderUrl);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setProgress({
+        total: allFiles.length,
+        done: 0,
+        current: "",
+        phase: "error",
+        operation: "drive",
+        errorMsg: msg,
+      });
+    } finally {
+      setDriveBusy(false);
+    }
+  };
 
   // Cuando el usuario tiene un preview con ventana temporal válida, lanzamos
   // una consulta al endpoint de NASA para ver si hay un tránsito predicho
@@ -991,6 +1166,8 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
               disabled={
                 progress.phase === "downloading" ||
                 progress.phase === "zipping" ||
+                progress.phase === "uploading" ||
+                progress.phase === "preparing" ||
                 totalFiles === 0
               }
               className="primary"
@@ -999,6 +1176,63 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
             </button>
           )}
         </div>
+
+        {preview && (
+          <div className="drive-zone">
+            {driveToken ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleDriveUpload}
+                  disabled={
+                    driveBusy ||
+                    progress.phase === "uploading" ||
+                    progress.phase === "preparing" ||
+                    progress.phase === "downloading" ||
+                    progress.phase === "zipping" ||
+                    totalFiles === 0
+                  }
+                  className="primary"
+                  title={i18n("action.drive.signInTitle", lang)}
+                >
+                  ↑ {i18n("action.drive.upload", lang)}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDriveSignOut}
+                  disabled={driveBusy}
+                  className="link-button"
+                  title={i18n("action.drive.signedInAs", lang)}
+                >
+                  {i18n("action.drive.signOut", lang)}
+                </button>
+                {driveDoneUrl && (
+                  <a
+                    href={driveDoneUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="drive-link"
+                  >
+                    {i18n("action.drive.openFolder", lang)}
+                  </a>
+                )}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDriveSignIn}
+                disabled={driveBusy}
+                className="drive-signin"
+                title={i18n("action.drive.signInTitle", lang)}
+              >
+                <GoogleDriveIcon />
+                {driveBusy
+                  ? i18n("action.loading", lang)
+                  : i18n("action.drive.signIn", lang)}
+              </button>
+            )}
+          </div>
+        )}
       </fieldset>
 
       {errMsg && <div className="error">{errMsg}</div>}
@@ -1371,9 +1605,28 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
             </>
           )}
           {progress.phase === "zipping" && i18n("progress.zipping", lang)}
-          {progress.phase === "done" && i18n("progress.done", lang)}
+          {progress.phase === "preparing" && i18n("drive.preparing", lang)}
+          {progress.phase === "uploading" && (
+            <>
+              {i18n("drive.uploading", lang, {
+                done: progress.done,
+                total: progress.total,
+                current: progress.current,
+              })}
+              <progress
+                value={progress.done}
+                max={progress.total}
+              />
+            </>
+          )}
+          {progress.phase === "done" &&
+            (progress.operation === "drive"
+              ? i18n("drive.done", lang)
+              : i18n("progress.done", lang))}
           {progress.phase === "error" &&
-            i18n("progress.error", lang, { errorMsg: progress.errorMsg ?? "" })}
+            (progress.operation === "drive"
+              ? i18n("drive.error", lang, { errorMsg: progress.errorMsg ?? "" })
+              : i18n("progress.error", lang, { errorMsg: progress.errorMsg ?? "" }))}
         </div>
       )}
     </div>

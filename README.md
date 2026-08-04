@@ -34,8 +34,9 @@ src/
 
 ```bash
 cd web/
+cp .env.example .env       # edita PUBLIC_GOOGLE_CLIENT_ID (ver sección Drive)
 npm install
-npm run dev          # http://localhost:4321
+npm run dev                # http://localhost:4321
 ```
 
 ## Build + deploy a Netlify
@@ -82,3 +83,57 @@ del telescopio elegido (toggle "Requerir darks").
   por request, sin retención en memoria.
 - La descarga masiva + zip se hace en el cliente con `JSZip` (4 workers
   en paralelo), evitando los límites del servidor.
+
+## Google Drive upload
+
+La app permite subir la misma secuencia de FITS a una carpeta
+`EXOTIC/<target>/` de tu Google Drive, replicando la estructura del ZIP
+(`<date>/<fits>` y `<date>/darks/<fits>`).
+
+### Cómo funciona
+
+- OAuth 2.0 con **Google Identity Services** en el navegador, scope
+  `https://www.googleapis.com/auth/drive.file`. La app solo puede ver
+  y gestionar los archivos que ella misma suba; **no** tiene acceso al
+  resto de tu Drive.
+- El access token se guarda en `localStorage` con su `expires_in`
+  (~1 h). Al caducar, la app te pide re-autenticar.
+- Las subidas usan `uploadType=resumable` para soportar FITS grandes
+  (10–20 MB).
+- Concurrencia: 4 workers en paralelo (igual que la descarga ZIP),
+  muy por debajo del rate limit de Drive (1000 req / 100 s).
+- Si ya tienes la carpeta `EXOTIC/` y/o `EXOTIC/<target>/` en tu Drive,
+  se reutilizan: el sistema cachea los folder IDs en memoria durante
+  la sesión.
+
+### Setup (solo una vez)
+
+1. **Google Cloud Console** → [console.cloud.google.com](https://console.cloud.google.com/).
+2. Crea un proyecto (o reutiliza uno existente).
+3. **APIs & Services → Library** → habilita **Google Drive API**.
+4. **APIs & Services → OAuth consent screen**:
+   - User type: **External** (o Internal si usas Google Workspace).
+   - Scopes: añade `https://www.googleapis.com/auth/drive.file`.
+   - Test users: añade tu email mientras esté en modo "Testing".
+5. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Application type: **Web application**.
+   - Authorized JavaScript origins:
+     - `http://localhost:4321` (dev)
+     - `https://tu-sitio.netlify.app` (producción)
+6. Copia el **Client ID** y pégalo en `web/.env`:
+   ```
+   PUBLIC_GOOGLE_CLIENT_ID=1234567890-abc...xyz.apps.googleusercontent.com
+   ```
+7. Reinicia `npm run dev`. El botón "Sign in with Google Drive"
+   debería abrir el popup de consentimiento en el primer click.
+
+### Lo que la app NO hace (por diseño)
+
+- **No** sube el ZIP completo: sube los FITS sueltos con la
+  estructura de carpetas, más útil para EXOTIC.
+- **No** comparte la carpeta con nadie: queda privada en tu cuenta.
+- **No** usa refresh tokens: solo access tokens de corta duración
+  guardados en `localStorage`. Si quieres más seguridad, cierra
+  sesión con el botón "Desconectar" tras subir.
+- **No** se reintenta automáticamente en subidas fallidas: el error
+  se muestra en la barra de progreso y puedes volver a pulsar "Subir".

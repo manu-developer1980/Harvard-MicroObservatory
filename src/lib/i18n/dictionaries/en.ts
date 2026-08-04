@@ -62,6 +62,13 @@ export const en = {
   "action.preview": "Preview",
   "action.loading": "...",
   "action.download": "Download ZIP ({count} FITS)",
+  "action.drive.signIn": "Sign in with Google Drive",
+  "action.drive.signInTitle":
+    "Connect to Google Drive to upload the sequence directly to your account",
+  "action.drive.upload": "Upload to Google Drive",
+  "action.drive.signOut": "Disconnect",
+  "action.drive.openFolder": "Open folder in Drive ↗",
+  "action.drive.signedInAs": "Connected to Google Drive",
 
   "summary.title": "Summary",
   "summary.target": "Target: {target} ({telescope})",
@@ -131,6 +138,15 @@ export const en = {
   "progress.zipping": "Compressing ZIP...",
   "progress.done": "✅ ZIP downloaded",
   "progress.error": "❌ {errorMsg}",
+
+  // Google Drive upload
+  "drive.preparing": "Preparing Drive folders...",
+  "drive.uploading": "Uploading to Drive {done}/{total} — {current}",
+  "drive.done": "✅ Sequence uploaded to Drive",
+  "drive.error": "❌ Drive upload failed: {errorMsg}",
+  "drive.signInError": "Google sign-in failed: {errorMsg}",
+  "drive.configMissing":
+    "PUBLIC_GOOGLE_CLIENT_ID is not configured. See README to set it up.",
 
   "error.noTelescope": "Pick a telescope first",
   "error.noFiles": "There are no files to download",
