@@ -5,12 +5,14 @@
   "private": true,
   "scripts": {
     "dev": "astro dev",
+    "predev": "rm -rf node_modules/.vite",
     "build": "astro build",
     "preview": "astro preview",
     "netlify": "netlify dev",
     "astro": "astro",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "pretest": "rm -rf node_modules/.vite/vitest"
   },
   "dependencies": {
     "@astrojs/netlify": "^6.0.0",
