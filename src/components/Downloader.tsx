@@ -130,21 +130,23 @@ type PreviewResponse = {
 // El endpoint usa TAP query a la tabla `ps` + cálculo propio de tránsitos
 // (t_n = t0 + n*P) en vez de la Transit Service API, que ignora bJD/eJD
 // y solo devuelve el "next transit".
+//
+// Desde la migración a "most precise" (réplica del TransitView de NASA),
+// el endpoint devuelve UNA sola predicción: la de la efeméride con
+// menor σ(t_n) propagada en la fecha de la consulta. `transit` está
+// siempre presente (puede estar dentro o fuera de la ventana); su
+// `offsetMin` indica la desviación (0 = dentro, ±X = minutos de
+// diferencia con el borde más cercano).
 type TransitCheckResponse = {
   ok: boolean;
   error?: string;
   target: string;
   matchedName?: string;     // pl_name que matcheó (e.g. "WASP-135 b")
   matchedHost?: string;     // hostname (e.g. "WASP-135" o "WASP-135 A")
-  // Referencias de las efemérides elegidas, en texto limpio
-  // (e.g. ["Ivshina & Winn 2022"]).
-  references?: string[];
   startJd: number;
   endJd: number;
-  found: boolean;           // al menos un midpoint en la ventana
-  count: number;
-  transits: Array<TransitHit>;
-  nearest: TransitHit | null; // tránsito más cercano (puede estar fuera)
+  found: boolean;           // la predicción cae dentro de la ventana
+  transit: TransitHit | null; // UNA sola predicción (la de la "most precise")
   source: string;
 };
 
@@ -805,16 +807,16 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
         } else if (data.found) {
           setTransitCheck({ state: "found", data });
         } else if (
-          data.nearest &&
-          Math.abs(data.nearest.offsetMin) <= NEAR_MISS_THRESHOLD_MIN
+          data.transit &&
+          Math.abs(data.transit.offsetMin) <= NEAR_MISS_THRESHOLD_MIN
         ) {
-          // Hay un tránsito cerca (dentro de NEAR_MISS_THRESHOLD_MIN)
-          // pero su midpoint cae fuera de la ventana. Avisamos al usuario
+          // La predicción de la "most precise" cae fuera pero cerca
+          // (dentro de NEAR_MISS_THRESHOLD_MIN). Avisamos al usuario
           // de que se perdió por poco.
           setTransitCheck({
             state: "nearMiss",
             data,
-            offsetMin: data.nearest.offsetMin,
+            offsetMin: data.transit.offsetMin,
           });
         } else {
           setTransitCheck({ state: "notFound", data });
@@ -1349,11 +1351,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                   {transitCheck.state === "loading" &&
                     i18n("transit.loading", lang)}
                   {transitCheck.state === "found" &&
-                    (transitCheck.data.count > 1
-                      ? i18n("transit.found", lang, {
-                          count: transitCheck.data.count,
-                        })
-                      : i18n("transit.foundOne", lang))}
+                    i18n("transit.foundOne", lang)}
                   {transitCheck.state === "nearMiss" &&
                     i18n("transit.nearMiss", lang, {
                       minutes: Math.abs(transitCheck.offsetMin),
@@ -1427,44 +1425,53 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                         })}
                     </p>
                     {transitCheck.state === "found" &&
-                      transitCheck.data.transits.length > 0 && (
+                      transitCheck.data.transit && (
                         <>
                           <p className="hint">
                             {i18n("transit.midpoints", lang)}
                           </p>
                           <ul className="transit-midpoints">
-                            {transitCheck.data.transits.map((t, i) => (
-                              <li key={i}>
-                                <code>{t.midtimeUtc}</code>
-                                {t.uncertaintyJd != null && (
-                                  <>
-                                    {" "}
-                                    — {i18n("transit.uncertainty", lang, {
-                                      minutes: (
-                                        t.uncertaintyJd *
-                                        24 *
-                                        60
-                                      ).toFixed(1),
-                                    })}
-                                  </>
-                                )}
-                                {t.duration != null && t.period != null && (
+                            <li>
+                              <code>
+                                {transitCheck.data.transit.midtimeUtc}
+                              </code>
+                              {transitCheck.data.transit.uncertaintyJd !=
+                                null && (
+                                <>
+                                  {" "}
+                                  — {i18n("transit.uncertainty", lang, {
+                                    minutes: (
+                                      transitCheck.data.transit.uncertaintyJd *
+                                      24 *
+                                      60
+                                    ).toFixed(1),
+                                  })}
+                                </>
+                              )}
+                              {transitCheck.data.transit.duration != null &&
+                                transitCheck.data.transit.period != null && (
                                   <>
                                     {" "}
                                     <span className="hint">
-                                      (T = {t.duration.toFixed(2)} h, P ={" "}
-                                      {t.period.toFixed(4)} d)
+                                      (T ={" "}
+                                      {transitCheck.data.transit.duration.toFixed(
+                                        2,
+                                      )}{" "}
+                                      h, P ={" "}
+                                      {transitCheck.data.transit.period.toFixed(
+                                        4,
+                                      )}{" "}
+                                      d)
                                     </span>
                                   </>
                                 )}
-                              </li>
-                            ))}
+                            </li>
                           </ul>
                         </>
                       )}
                     {(transitCheck.state === "notFound" ||
                       transitCheck.state === "nearMiss") &&
-                      transitCheck.data.nearest && (
+                      transitCheck.data.transit && (
                         <>
                           <p className="hint">
                             {i18n("transit.nearest", lang)}
@@ -1472,27 +1479,26 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                           <ul className="transit-midpoints">
                             <li>
                               <code>
-                                {transitCheck.data.nearest.midtimeUtc}
+                                {transitCheck.data.transit.midtimeUtc}
                               </code>
                               {" "}
                               — {i18n("transit.nearestOffset", lang, {
                                 minutes: Math.abs(
-                                  transitCheck.data.nearest.offsetMin,
+                                  transitCheck.data.transit.offsetMin,
                                 ),
                                 sign: i18n(
-                                  transitCheck.data.nearest.offsetMin > 0
+                                  transitCheck.data.transit.offsetMin > 0
                                     ? "transit.nearMissBefore"
                                     : "transit.nearMissAfter",
                                   lang,
                                 ),
                               })}
-                              {transitCheck.data.nearest.duration !=
-                                null && (
+                              {transitCheck.data.transit.duration != null && (
                                 <>
                                   {" "}
                                   <span className="hint">
                                     (T ={" "}
-                                    {transitCheck.data.nearest.duration.toFixed(
+                                    {transitCheck.data.transit.duration.toFixed(
                                       2,
                                     )}{" "}
                                     h)
@@ -1503,21 +1509,13 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                           </ul>
                         </>
                       )}
-                    {transitCheck.data.references &&
-                      transitCheck.data.references.length > 0 && (
-                        <p className="hint transit-ephemeris">
-                          {transitCheck.data.references.map((ref, i) => (
-                            <span key={i}>
-                              {i18n("transit.ephemeris", lang, {
-                                reference: ref,
-                              })}
-                              {i < transitCheck.data.references!.length - 1
-                                ? " · "
-                                : ""}
-                            </span>
-                          ))}
-                        </p>
-                      )}
+                    {transitCheck.data.transit?.reference && (
+                      <p className="hint transit-ephemeris">
+                        {i18n("transit.ephemeris", lang, {
+                          reference: transitCheck.data.transit.reference,
+                        })}
+                      </p>
+                    )}
                     <p className="hint transit-source">
                       {i18n("transit.legendSource", lang)} ·{" "}
                       <a

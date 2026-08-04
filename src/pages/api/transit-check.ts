@@ -51,7 +51,7 @@ import { utcIsoToJd } from "@/lib/jd";
 import {
   type PlanetEph,
   type TransitHit,
-  matchAllEphemerides,
+  matchMostPreciseEphemeris,
 } from "@/lib/transit-match";
 import { TransitCheckRequestSchema, parseBody } from "@/lib/schemas";
 import { sqlEscapeLike } from "@/lib/sql-escape";
@@ -90,15 +90,23 @@ type TransitCheckResponse = {
   target: string;
   matchedName?: string;     // pl_name que matcheó
   matchedHost?: string;     // hostname
-  // Lista de referencias (papers) seleccionadas para los planetas
-  // matcheados. Cada elemento es la versión "limpia" del pl_refname.
-  references?: string[];
   startJd: number;
   endJd: number;
-  found: boolean;           // al menos un midpoint en ventana
-  count: number;            // número de midpoints en ventana
-  transits: TransitHit[];   // midpoints en ventana
-  nearest: TransitHit | null; // tránsito más cercano a la ventana
+  /**
+   * `true` si la predicción de la efeméride "most precise" cae dentro
+   * de la ventana del usuario. `false` si está fuera (incluso si otras
+   * efemérides menos precisas caerían dentro — la UI muestra la
+   * predicción como "near miss" con el offset en minutos).
+   */
+  found: boolean;
+  /**
+   * Predicción única de la efeméride "most precise" (réplica del
+   * Event Midpoint Calendar UT de NASA TransitView). SIEMPRE presente
+   * aunque la predicción caiga fuera de la ventana. Su `offsetMin`
+   * indica la desviación en minutos (positivo = antes del inicio,
+   * negativo = después del fin, 0 = dentro).
+   */
+  transit: TransitHit | null;
   source: string;
 };
 
@@ -286,9 +294,7 @@ export const POST: APIRoute = async ({ request }) => {
       startJd,
       endJd,
       found: false,
-      count: 0,
-      transits: [],
-      nearest: null,
+      transit: null,
       source: "exoplanetarchive.ipac.caltech.edu",
     };
     cache.set(cacheKey, {
@@ -298,37 +304,25 @@ export const POST: APIRoute = async ({ request }) => {
     return jsonResp(response);
   }
 
-  // Matching contra TODAS las efemérides. Ver `matchAllEphemerides` en
-  // transit-match.ts para la justificación de no pre-seleccionar una
-  // "mejor" (bug histórico en WASP-67 b 2026-07-29: la selección por
-  // propagatedUncertainty apuntaba a Mancini 2014 a 20:09:36 UTC, pero
-  // las 6 efemérides de NASA TransitView predecían 10:03–10:22 UTC).
-  const matched = matchAllEphemerides(ephs, startJd, endJd);
-  const allInWindow = matched.transits;
-  const bestNearest = matched.nearest;
-
-  const matchedName =
-    matched.matchedPlanets.length === 1
-      ? matched.matchedPlanets[0]
-      : matched.matchedPlanets.join(", ");
-  const matchedHost =
-    matched.matchedPlanets.length === 1
-      ? ephs.find((e) => e.pl_name === matched.matchedPlanets[0])?.hostname ??
-        ""
-      : `${matched.matchedPlanets[0]} (+${matched.matchedPlanets.length - 1})`;
+  // Matching contra LA efeméride "most precise" (réplica del flag
+  // ismostprecise=1 de NASA TransitView). Ver `matchMostPreciseEphemeris`
+  // en transit-match.ts. Devuelve UNA sola predicción con `found: true`
+  // si está dentro de la ventana, o con `found: false` + offset en
+  // minutos si está fuera (near miss).
+  const matched = matchMostPreciseEphemeris(ephs, startJd, endJd);
+  const pickedTransit = matched.transit;
+  const pickedName = matched.picked.pl_name;
+  const pickedHost = matched.picked.hostname;
 
   const response: TransitCheckResponse = {
     ok: true,
     target,
-    matchedName,
-    matchedHost,
-    references: matched.references.length > 0 ? matched.references : undefined,
+    matchedName: pickedName,
+    matchedHost: pickedHost,
     startJd,
     endJd,
-    found: allInWindow.length > 0,
-    count: allInWindow.length,
-    transits: allInWindow,
-    nearest: bestNearest,
+    found: matched.found,
+    transit: pickedTransit,
     source: "exoplanetarchive.ipac.caltech.edu",
   };
 

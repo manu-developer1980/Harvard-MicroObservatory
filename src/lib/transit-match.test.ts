@@ -23,6 +23,8 @@ import {
   propagatedUncertainty,
   stripHtml,
   matchAllEphemerides,
+  matchMostPreciseEphemeris,
+  pickMostPreciseEphemeris,
   TRANSIT_MATCH_TOLERANCE_DAYS,
   type PlanetEph,
 } from "@/lib/transit-match";
@@ -301,5 +303,198 @@ describe("matchAllEphemerides: WASP-67 b multi-ephemeris regression", () => {
     expect(result.references).toContain("Paper A 2020");
     expect(result.references).toContain("Mancini et al. 2014");
     expect(result.references.length).toBe(6);
+  });
+});
+
+/**
+ * Cambio de UX: la web de NASA TransitView muestra UNA sola efeméride
+ * (la "most precise"). Replicamos ese comportamiento con
+ * `pickMostPreciseEphemeris` + `matchMostPreciseEphemeris`.
+ *
+ * Caso CoRoT-2 b: NASA escoge "Sodickson & Grunblatt 2025" (rojo en
+ * TransitView). Esa predicción es la que queremos devolver.
+ *
+ * Caso WASP-67 b: 6 efemérides distintas. Con `matchAll` usábamos
+ * todas y marcaba "found" si alguna caía en ventana. Con
+ * `matchMostPrecise` usamos solo la "most precise" por σ(t_n) y
+ * mostramos UNA predicción. Si NASA y nuestra σ(t_n) coinciden en
+ * la elección, el resultado es el mismo (en este test, lo
+ * garantizamos haciendo que la "most precise" sea claramente la de
+ * menor σ_t0).
+ */
+describe("pickMostPreciseEphemeris", () => {
+  it("devuelve la única efeméride si hay solo una", () => {
+    const eph: PlanetEph = { ...wasp67b };
+    expect(pickMostPreciseEphemeris([eph], 2460000)).toBe(eph);
+  });
+
+  it("escoge la de menor σ(t_0) cuando n=0 (fecha cercana a t_0)", () => {
+    // A n=0, σ(t_n) = σ_t0 directamente.
+    const e1: PlanetEph = { ...wasp67b, pl_refname: "High precision", pl_tranmiderr1: 0.0001, pl_tranmiderr2: -0.0001, pl_orbpererr1: 0 };
+    const e2: PlanetEph = { ...wasp67b, pl_refname: "Low precision", pl_tranmiderr1: 0.01, pl_tranmiderr2: -0.01, pl_orbpererr1: 0 };
+    // queryJd = t_0 → n=0 para todas
+    const picked = pickMostPreciseEphemeris([e1, e2], wasp67b.pl_tranmid);
+    expect(picked.pl_refname).toBe("High precision");
+  });
+
+  it("ignora efemérides con pl_orbper <= 0 (inválidas)", () => {
+    const valid: PlanetEph = { ...wasp67b, pl_refname: "valid" };
+    const invalid: PlanetEph = { ...wasp67b, pl_orbper: 0, pl_refname: "invalid" };
+    const picked = pickMostPreciseEphemeris([invalid, valid], 2460000);
+    expect(picked.pl_refname).toBe("valid");
+  });
+
+  it("en empate, devuelve la primera del array (orden estable)", () => {
+    const a: PlanetEph = { ...wasp67b, pl_refname: "A" };
+    const b: PlanetEph = { ...wasp67b, pl_refname: "B" };
+    // Mismas σ → empate
+    const picked = pickMostPreciseEphemeris([a, b], 2460000);
+    expect(picked.pl_refname).toBe("A");
+  });
+
+  it("CASO CoRoT-2 b: la 'most precise' es la de menor σ(t_n) en queryJd", () => {
+    // Simulamos 3 efemérides tipo CoRoT-2 b. La "Sodickson 2025" es
+    // la más reciente y la de menor σ_t0. Las otras 2 son más antiguas
+    // y/o con más incertidumbre.
+    const sodickson: PlanetEph = {
+      ...wasp67b,
+      pl_refname: "Sodickson & Grunblatt 2025",
+      pl_tranmiderr1: 0.00008,
+      pl_tranmiderr2: -0.00008,
+      pl_orbpererr1: 0.0000001,
+    };
+    const gillon: PlanetEph = {
+      ...wasp67b,
+      pl_refname: "Gillon et al. 2010",
+      pl_tranmiderr1: 0.0005,
+      pl_tranmiderr2: -0.0005,
+      pl_orbpererr1: 0.000001,
+    };
+    const baluev: PlanetEph = {
+      ...wasp67b,
+      pl_refname: "Baluev et al. 2015",
+      pl_tranmiderr1: 0.0003,
+      pl_tranmiderr2: -0.0003,
+      pl_orbpererr1: 0.0000005,
+    };
+    const query = utcIsoToJd("2026-08-02T08:16:00.000Z"); // CoRoT-2 b
+    const picked = pickMostPreciseEphemeris(
+      [gillon, baluev, sodickson],
+      query,
+    );
+    expect(picked.pl_refname).toBe("Sodickson & Grunblatt 2025");
+  });
+});
+
+describe("matchMostPreciseEphemeris", () => {
+  it("found=true cuando la predicción cae dentro de la ventana", () => {
+    const inWin = utcIsoToJd("2026-07-29T10:16:00.000Z");
+    const start = utcIsoToJd("2026-07-29T08:10:10.000Z");
+    const end = utcIsoToJd("2026-07-29T10:30:15.000Z");
+    const eph: PlanetEph = { ...wasp67b, pl_tranmid: inWin };
+    const r = matchMostPreciseEphemeris([eph], start, end);
+    expect(r.found).toBe(true);
+    expect(r.transit.offsetMin).toBe(0);
+  });
+
+  it("found=false + offsetMin≠0 cuando la predicción cae fuera", () => {
+    const outOfWin = utcIsoToJd("2026-07-29T20:09:36.000Z");
+    const start = utcIsoToJd("2026-07-29T08:10:10.000Z");
+    const end = utcIsoToJd("2026-07-29T10:30:15.000Z");
+    const eph: PlanetEph = { ...wasp67b, pl_tranmid: outOfWin };
+    const r = matchMostPreciseEphemeris([eph], start, end);
+    expect(r.found).toBe(false);
+    expect(r.transit.offsetMin).toBeLessThan(-500); // ~9h 39min
+  });
+
+  it("CASO CoRoT-2 b: con 13 referencias, devuelve la 'Sodickson 2025' como fuente", () => {
+    // Simulamos que la "Sodickson 2025" predice el tránsito dentro de
+    // la ventana 08:00–08:30 UTC del 2026-08-02.
+    const corot2 = utcIsoToJd("2026-08-02T08:16:00.000Z");
+    const start = utcIsoToJd("2026-08-02T08:00:00.000Z");
+    const end = utcIsoToJd("2026-08-02T08:30:00.000Z");
+
+    // Generamos 13 efemérides con σ crecientes; la "Sodickson" es la
+    // de menor σ_t0 (sería la "most precise" por nuestro algoritmo).
+    const ephs: PlanetEph[] = [
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Sodickson & Grunblatt 2025", pl_tranmiderr1: 0.00008, pl_tranmiderr2: -0.00008, pl_orbpererr1: 0.0000001 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Gillon et al. 2010", pl_tranmiderr1: 0.0005, pl_tranmiderr2: -0.0005, pl_orbpererr1: 0.000001 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Alonso et al. 2008", pl_tranmiderr1: 0.001, pl_tranmiderr2: -0.001, pl_orbpererr1: 0.000002 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Baluev et al. 2015", pl_tranmiderr1: 0.0003, pl_tranmiderr2: -0.0003, pl_orbpererr1: 0.0000005 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Bonomo et al. 2017", pl_tranmiderr1: 0.0002, pl_tranmiderr2: -0.0002, pl_orbpererr1: 0.0000003 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Bruno et al. 2016", pl_tranmiderr1: 0.0004, pl_tranmiderr2: -0.0004, pl_orbpererr1: 0.0000008 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "ExoFOP", pl_tranmiderr1: 0.0001, pl_tranmiderr2: -0.0001, pl_orbpererr1: 0.0000002 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Ivshina & Winn 2022", pl_tranmiderr1: 0.00025, pl_tranmiderr2: -0.00025, pl_orbpererr1: 0.00000034 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Kokori et al. 2022", pl_tranmiderr1: 0.00019, pl_tranmiderr2: -0.00019, pl_orbpererr1: 0.00000039 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Kokori et al. 2023", pl_tranmiderr1: 0.00018, pl_tranmiderr2: -0.00018, pl_orbpererr1: 0.00000035 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Southworth 2011", pl_tranmiderr1: 0.0008, pl_tranmiderr2: -0.0008, pl_orbpererr1: 0.0000015 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Southworth 2012", pl_tranmiderr1: 0.0009, pl_tranmiderr2: -0.0009, pl_orbpererr1: 0.0000018 },
+      { ...wasp67b, pl_tranmid: corot2, pl_refname: "Öztürk & Erdem 2019", pl_tranmiderr1: 0.0006, pl_tranmiderr2: -0.0006, pl_orbpererr1: 0.0000012 },
+    ];
+
+    const r = matchMostPreciseEphemeris(ephs, start, end);
+    expect(r.found).toBe(true);
+    expect(r.picked.pl_refname).toBe("Sodickson & Grunblatt 2025");
+    // La predicción es 08:16:xx UTC (la que pusimos como pl_tranmid).
+    // Permitimos ±1s por redondeo JD→ISO.
+    expect(r.transit.midtimeUtc).toMatch(/2026-08-02 08:1[56]/);
+  });
+
+  it("REGRESIÓN WASP-67 b: con la 'most precise' cayendo en ventana, found=true", () => {
+    // 5 efemérides que predicen 10:16 (en ventana) + 1 'Mancini 2014'
+    // con σ mayor (sería descartada por nuestro algoritmo). El resultado
+    // debe ser la 'most precise' (la de menor σ_t0) y found=true.
+    const tenSixteen = utcIsoToJd("2026-07-29T10:16:00.000Z");
+    const twentyOhNine = utcIsoToJd("2026-07-29T20:09:36.000Z");
+    const start = utcIsoToJd("2026-07-29T08:10:10.000Z");
+    const end = utcIsoToJd("2026-07-29T10:30:15.000Z");
+
+    const ephs: PlanetEph[] = [
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Sodickson 2025", pl_tranmiderr1: 0.00008, pl_tranmiderr2: -0.00008, pl_orbpererr1: 0.0000001 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Gillon 2010", pl_tranmiderr1: 0.0005, pl_tranmiderr2: -0.0005, pl_orbpererr1: 0.000001 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Alonso 2008", pl_tranmiderr1: 0.001, pl_tranmiderr2: -0.001, pl_orbpererr1: 0.000002 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Baluev 2015", pl_tranmiderr1: 0.0003, pl_tranmiderr2: -0.0003, pl_orbpererr1: 0.0000005 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Bonomo 2017", pl_tranmiderr1: 0.0002, pl_tranmiderr2: -0.0002, pl_orbpererr1: 0.0000003 },
+      // "Mancini 2014" con σ MUY alta (sería descartada por el algoritmo)
+      { ...wasp67b, pl_tranmid: twentyOhNine, pl_refname: "Mancini et al. 2014", pl_tranmiderr1: 0.01, pl_tranmiderr2: -0.01, pl_orbpererr1: 0.0001 },
+    ];
+
+    const r = matchMostPreciseEphemeris(ephs, start, end);
+    expect(r.found).toBe(true);
+    expect(r.picked.pl_refname).toBe("Sodickson 2025");
+    expect(r.transit.midtimeUtc).toMatch(/2026-07-29 10:1[56]/);
+  });
+
+  it("REGRESIÓN WASP-67 b: si la 'most precise' discrepa y cae fuera, found=false", () => {
+    // Este es el caso PELIGROSO: 5 efemérides predicen 10:16 (dentro),
+    // pero la "most precise" por σ(t_n) termina siendo la "Mancini 2014"
+    // que predice 20:09:36 (fuera). Con `matchAll` sería found=true;
+    // con `matchMostPrecise` (y nuestra σ discrepando de NASA) sería
+    // found=false. Lo documentamos para que se sepa el trade-off.
+    const tenSixteen = utcIsoToJd("2026-07-29T10:16:00.000Z");
+    const twentyOhNine = utcIsoToJd("2026-07-29T20:09:36.000Z");
+    const start = utcIsoToJd("2026-07-29T08:10:10.000Z");
+    const end = utcIsoToJd("2026-07-29T10:30:15.000Z");
+
+    const ephs: PlanetEph[] = [
+      // 5 efemérides correctas con σ MAYOR que la Mancini
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Sodickson 2025", pl_tranmiderr1: 0.001, pl_tranmiderr2: -0.001, pl_orbpererr1: 0.00001 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Gillon 2010", pl_tranmiderr1: 0.002, pl_tranmiderr2: -0.002, pl_orbpererr1: 0.00002 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Alonso 2008", pl_tranmiderr1: 0.003, pl_tranmiderr2: -0.003, pl_orbpererr1: 0.00003 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Baluev 2015", pl_tranmiderr1: 0.0015, pl_tranmiderr2: -0.0015, pl_orbpererr1: 0.000015 },
+      { ...wasp67b, pl_tranmid: tenSixteen, pl_refname: "Bonomo 2017", pl_tranmiderr1: 0.0012, pl_tranmiderr2: -0.0012, pl_orbpererr1: 0.000012 },
+      // "Mancini 2014" con σ ARTIFICIALMENTE BAJA para que nuestro
+      // algoritmo la escoja. En realidad NO es la most precise de
+      // NASA, pero simulamos que nuestra σ discrepa.
+      { ...wasp67b, pl_tranmid: twentyOhNine, pl_refname: "Mancini et al. 2014", pl_tranmiderr1: 0.0001, pl_tranmiderr2: -0.0001, pl_orbpererr1: 0.0000001 },
+    ];
+
+    const r = matchMostPreciseEphemeris(ephs, start, end);
+    expect(r.found).toBe(false);
+    expect(r.picked.pl_refname).toBe("Mancini et al. 2014");
+    // El "nearest" se queda con la predicción de Mancini (20:09:xx)
+    expect(r.transit.midtimeUtc).toMatch(/2026-07-29 20:09/);
+    // Y reporta el offset (positivo = antes del inicio, negativo = después)
+    expect(r.transit.offsetMin).toBeLessThan(-500);
   });
 });

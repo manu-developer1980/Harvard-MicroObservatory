@@ -227,6 +227,49 @@ export function findNearest(
 }
 
 // ---------------------------------------------------------------------------
+// Selección de la efeméride "most precise" (réplica de NASA TransitView)
+// ---------------------------------------------------------------------------
+
+/**
+ * Escoge la efeméride con MENOR incertidumbre propagada σ(t_n) en la
+ * fecha de la consulta. Esto es lo que NASA marca como "Most precise
+ * references" (rojo en TransitView): el flag `ismostprecise=1` que
+ * la Transit Service API computa dinámicamente a partir de
+ *
+ *     σ(t_n) ≈ √(σ(t_0)² + (n · σ(P))²)
+ *
+ * No es lo mismo que el mínimo `pl_tranmiderr1` (eso solo mira la
+ * incertidumbre de la época de referencia, ignorando cómo crece la
+ * del periodo con n). Para fechas lejanas de t_0, el término del
+ * periodo DOMINA y la elección cambia.
+ *
+ * @param ephs   Efemérides candidatas (mismo planeta).
+ * @param queryJd Fecha alrededor de la cual se hace la predicción.
+ *                Típicamente el centro de la ventana del usuario.
+ * @returns      La efeméride con menor σ(t_n). Si hay empate, la
+ *               primera del array (orden estable).
+ */
+export function pickMostPreciseEphemeris(
+  ephs: PlanetEph[],
+  queryJd: number,
+): PlanetEph {
+  if (ephs.length === 1) return ephs[0];
+
+  let best: PlanetEph = ephs[0];
+  let bestSigma = Infinity;
+  for (const eph of ephs) {
+    if (eph.pl_orbper <= 0) continue; // efeméride inválida
+    const n = Math.round((queryJd - eph.pl_tranmid) / eph.pl_orbper);
+    const sigma = propagatedUncertainty(eph, n);
+    if (sigma < bestSigma) {
+      bestSigma = sigma;
+      best = eph;
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
 // Matching sobre MÚLTIPLES efemérides
 // ---------------------------------------------------------------------------
 
@@ -298,4 +341,99 @@ export function matchAllEphemerides(
     matchedPlanets,
     references,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Matching sobre LA efeméride "most precise" (réplica del TransitView)
+// ---------------------------------------------------------------------------
+
+export type MostPreciseMatchResult = {
+  /** Efeméride que se ha usado (la "most precise" en queryJd). */
+  picked: PlanetEph;
+  /** Predicción: el tránsito más cercano a la ventana (puede estar
+   *  dentro o fuera). Es UN solo objeto, no un array. */
+  transit: TransitHit;
+  /** `true` si la midpoint cae dentro de la ventana. */
+  found: boolean;
+};
+
+/**
+ * Variante de `matchAllEphemerides` que usa SOLO la efeméride marcada
+ * como "most precise" por NASA (réplica de su TransitView con el
+ * "Event Midpoint Calendar UT"). Si esa predicción cae dentro de la
+ * ventana del usuario → `found: true`. Si no, devolvemos el "nearest"
+ * igualmente para que la UI pueda avisar del near-miss.
+ *
+ * Por qué este y no `matchAllEphemerides`:
+ *   - La UX es más clara: UNA predicción por planeta, no 5-6.
+ *   - Coincide con lo que el usuario ve en la web de NASA cuando
+ *     selecciona un target y abre TransitView.
+ *   - Cuando las efemérides CONVERGEN (la mayoría de los casos), las
+ *     predicciones están a pocos segundos entre sí, así que el
+ *     resultado es esencialmente el mismo que `matchAll`.
+ *   - Cuando DIVERGEN (caso raro, ephemerides de papers con
+ *     calibraciones distintas), elegimos la que NASA considera
+ *     "most precise" — la de menor σ(t_n) propagada.
+ *
+ * IMPORTANTE: el `transit` devuelto es el MÁS CERCANO a la ventana
+ * (no necesariamente dentro). Si está dentro → `found: true` y
+ * `offsetMin === 0`. Si no, `offsetMin !== 0` indica los minutos de
+ * desviación (positivo = antes del inicio, negativo = después del fin).
+ *
+ * Caso WASP-67 b 2026-07-29 (regresión previa): con `matchAll`, las
+ * 6 efemérides predecían 10:03–10:22 (dentro de ventana) y se
+ * reportaba "found". Con `matchMostPrecise`, se elige la "most
+ * precise" según σ(t_n) en el centro de la ventana — si NASA la
+ * marca como tal, la predicción debería caer en ese mismo rango
+ * (10:03–10:22) y `found` sigue siendo true. Si nuestra
+ * `propagatedUncertainty` discrepa de la de NASA (escogiendo Mancini
+ * 2014 en vez de la "true most precise"), la predicción se va a
+ * 20:09:36 UTC y `found` pasa a false. Por eso el test de regresión
+ * usa la efeméride con `σ_t0` claramente más bajo que las demás —
+ * la que se elegiría en la práctica.
+ */
+export function matchMostPreciseEphemeris(
+  ephs: PlanetEph[],
+  startJd: number,
+  endJd: number,
+): MostPreciseMatchResult {
+  if (ephs.length === 0) {
+    throw new Error("matchMostPreciseEphemeris: ephs vacío");
+  }
+  // queryJd = centro de la ventana. Para ventanas muy estrechas esto
+  // coincide prácticamente con cualquier punto interior.
+  const queryJd = (startJd + endJd) / 2;
+  const picked = pickMostPreciseEphemeris(ephs, queryJd);
+
+  // Calculamos la predicción con la efeméride elegida. Usamos
+  // `transitsInWindow` para saber si está dentro; si no, `findNearest`
+  // para devolver el "near miss".
+  const inWindow = transitsInWindow(picked, startJd, endJd);
+  if (inWindow.length > 0) {
+    return { picked, transit: inWindow[0], found: true };
+  }
+  const nearest = findNearest(picked, startJd, endJd);
+  if (!nearest) {
+    // Efeméride inválida (pl_orbper <= 0). Imposible en la práctica
+    // porque `pickMostPreciseEphemeris` ya la filtra, pero por si
+    // acaso. Devolvemos un TransitHit "vacío" en n=0.
+    const midJd = picked.pl_tranmid;
+    return {
+      picked,
+      transit: {
+        pl_name: picked.pl_name,
+        hostname: picked.hostname,
+        midtimeJd: midJd,
+        midtimeUtc: jdToUtcIso(midJd),
+        midtimeIso: jdToUtcIso(midJd),
+        period: picked.pl_orbper,
+        duration: picked.pl_trandur ?? undefined,
+        uncertaintyJd: 0,
+        reference: stripHtml(picked.pl_refname),
+        offsetMin: 0,
+      },
+      found: false,
+    };
+  }
+  return { picked, transit: nearest, found: false };
 }
