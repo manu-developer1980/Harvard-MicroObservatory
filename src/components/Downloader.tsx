@@ -7,8 +7,8 @@ import {
 import {
   buildAllFiles,
   groupContainsTransit,
-  type DateGroupLite,
 } from "@/lib/sequence-table";
+import type { DateGroup } from "@/pages/api/preview";
 import {
   t as i18n,
   getStoredLang,
@@ -70,11 +70,10 @@ function GoogleDriveIcon() {
   );
 }
 
-type DateGroup = {
-  date: string;
-  transit: ImageRecord[];
-  darks: ImageRecord[];
-};
+// `DateGroup` viene de `@/pages/api/preview` (importado arriba) — fuente
+// única de verdad para el shape que devuelve el endpoint. Tiene los campos
+// extra `folderName`, `sessionIndex`, `sessionCount` para soportar
+// multi-secuencia el mismo día (sufijo `-N` en la carpeta del ZIP).
 
 type PreviewResponse = {
   ok: boolean;
@@ -306,9 +305,13 @@ type SequenceTableProps = {
   preview: PreviewResponse;
   /** TransitHit predicho por NASA (null si no hay tránsito aún o no se encontró). */
   transitHit: TransitHit | null;
-  /** Fechas (YYYYMMDD) marcadas por el usuario. */
-  selectedDates: ReadonlySet<string>;
-  onToggleDate: (date: string) => void;
+  /**
+   * FolderNames (los nombres reales de las carpetas del ZIP/Drive)
+   * marcadas por el usuario. Incluyen el sufijo `-N` cuando hay
+   * multi-secuencia el mismo día (p.ej. `20260729-2`).
+   */
+  selectedFolderNames: ReadonlySet<string>;
+  onToggleFolder: (folderName: string) => void;
   onSelectAll: () => void;
   onSelectNone: () => void;
   lang: Lang;
@@ -319,6 +322,8 @@ type SequenceTableProps = {
  *   - Columna "Sel." con checkbox por fila (solo si hay >1 secuencia)
  *   - Tick verde en la fila que contiene el tránsito predicho
  *   - Barra de selección rápida (todo / ninguno) sobre la tabla
+ *   - Sufijo `-N` visible en la columna "Fecha" cuando hay multi-secuencia
+ *     el mismo día (la carpeta del ZIP también lo lleva)
  *
  * Si hay UNA sola secuencia, la columna "Sel." y la barra rápida se
  * omiten (no hay nada que seleccionar). El tick verde sí se muestra
@@ -328,8 +333,8 @@ type SequenceTableProps = {
 function SequenceTable({
   preview,
   transitHit,
-  selectedDates,
-  onToggleDate,
+  selectedFolderNames,
+  onToggleFolder,
   onSelectAll,
   onSelectNone,
   lang,
@@ -343,7 +348,7 @@ function SequenceTable({
         <div className="sequence-table-toolbar">
           <span className="sequence-table-toolbar-label">
             {i18n("sequenceTable.selectedCount", lang, {
-              selected: selectedDates.size,
+              selected: selectedFolderNames.size,
               total: groups.length,
             })}
           </span>
@@ -353,7 +358,7 @@ function SequenceTable({
               className="link-button"
               onClick={onSelectAll}
               disabled={
-                selectedDates.size === groups.length ||
+                selectedFolderNames.size === groups.length ||
                 groups.length === 0
               }
             >
@@ -364,7 +369,7 @@ function SequenceTable({
               type="button"
               className="link-button"
               onClick={onSelectNone}
-              disabled={selectedDates.size === 0}
+              disabled={selectedFolderNames.size === 0}
             >
               {i18n("sequenceTable.selectNone", lang)}
             </button>
@@ -384,10 +389,18 @@ function SequenceTable({
         <tbody>
           {groups.map((g) => {
             const containsTransit = groupContainsTransit(g, transitHit);
-            const selected = selectedDates.has(g.date);
+            const selected = selectedFolderNames.has(g.folderName);
+            // Mostramos la fecha en formato legible y, si hay multi-secuencia
+            // el mismo día, añadimos el sufijo "-N" para que el usuario vea
+            // a qué sesión del día corresponde esta fila. Coincide con el
+            // `folderName` del ZIP.
+            const dateLabel =
+              g.sessionCount > 1
+                ? `${toDDMMYYYY(g.date)}-${g.sessionIndex}`
+                : toDDMMYYYY(g.date);
             return (
               <tr
-                key={g.date}
+                key={g.folderName}
                 className={
                   (containsTransit ? "contains-transit" : "") +
                   (!selected && multiSelect ? " is-deselected" : "")
@@ -398,15 +411,15 @@ function SequenceTable({
                     <input
                       type="checkbox"
                       checked={selected}
-                      onChange={() => onToggleDate(g.date)}
+                      onChange={() => onToggleFolder(g.folderName)}
                       aria-label={i18n("sequenceTable.toggleAria", lang, {
-                        date: toDDMMYYYY(g.date),
+                        date: dateLabel,
                       })}
                     />
                   </td>
                 )}
                 <td>
-                  {toDDMMYYYY(g.date)}
+                  {dateLabel}
                   {containsTransit && (
                     <span
                       className="transit-tick"
@@ -496,26 +509,30 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
 
   // Selección de secuencias para descargar/subir. Solo se muestra la
   // UI (checkbox por fila) cuando hay más de UNA secuencia. Por
-  // defecto, todas las secuencias están seleccionadas (Set con todas
-  // las fechas). Se re-inicializa automáticamente cuando llega un
-  // preview nuevo (ver useEffect más abajo) para evitar arrastrar
-  // selecciones obsoletas entre requests.
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(
+  // defecto, todas las secuencias están seleccionadas (Set con todos
+  // los folderNames, que es el nombre REAL de la carpeta del ZIP e
+  // incluye sufijo `-N` cuando hay multi-secuencia el mismo día).
+  // Se re-inicializa automáticamente cuando llega un preview nuevo
+  // (ver useEffect más abajo) para evitar arrastrar selecciones
+  // obsoletas entre requests.
+  const [selectedFolderNames, setSelectedFolderNames] = useState<Set<string>>(
     () => new Set(),
   );
 
-  // Cuando llega un preview nuevo, marcamos todas sus fechas como
-  // seleccionadas. Esto cubre dos casos:
+  // Cuando llega un preview nuevo, marcamos todas sus secuencias
+  // como seleccionadas. Esto cubre dos casos:
   //   (a) primer preview: Set estaba vacío
-  //   (b) preview regenerado: el usuario podría tener fechas que ya
-  //       no existen; las limpiamos y volvemos a seleccionar las
-  //       nuevas. Sin esto, una fecha descartada pero previamente
-  //       seleccionada quedaría "huérfana" en el Set.
+  //   (b) preview regenerado: el usuario podría tener folderNames
+  //       que ya no existen; los limpiamos y volvemos a seleccionar
+  //       los nuevos. Sin esto, un folderName descartado pero
+  //       previamente seleccionado quedaría "huérfano" en el Set.
   useEffect(() => {
     if (preview) {
-      setSelectedDates(new Set(preview.transitByDate.map((g) => g.date)));
+      setSelectedFolderNames(
+        new Set(preview.transitByDate.map((g) => g.folderName)),
+      );
     } else {
-      setSelectedDates(new Set());
+      setSelectedFolderNames(new Set());
     }
   }, [preview]);
 
@@ -774,10 +791,10 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // Paso 3: descargar ZIP
   const handleDownload = async () => {
     if (!preview) return;
-    // Usamos la selección del usuario (Set de fechas marcadas). Si
-    // hay una sola secuencia, el Set contiene su única fecha y
-    // buildAllFiles devuelve lo mismo que antes — sin overhead.
-    const allFiles = buildAllFiles(preview.transitByDate, selectedDates);
+    // Usamos la selección del usuario (Set de folderNames marcados).
+    // Si hay una sola secuencia, el Set contiene su único folderName
+    // y buildAllFiles devuelve lo mismo que antes — sin overhead.
+    const allFiles = buildAllFiles(preview.transitByDate, selectedFolderNames);
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -825,7 +842,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${target}_${preview.transitByDate[0]?.date ?? "all"}.zip`;
+      a.download = `${target}_${preview.transitByDate[0]?.folderName ?? "all"}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -850,13 +867,13 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
 
   // FITS de las secuencias SELECCIONADAS. Es lo que realmente se
   // descarga/sube cuando el usuario pulsa el botón. Cuando hay una
-  // sola secuencia, selectedDates contiene su única fecha y este
-  // conteo es igual a totalFiles. Cuando hay varias, refleja la
-  // suma de las filas marcadas.
+  // sola secuencia, selectedFolderNames contiene su único folderName
+  // y este conteo es igual a totalFiles. Cuando hay varias,
+  // refleja la suma de las filas marcadas.
   const selectedFilesCount = preview
     ? preview.transitByDate.reduce(
         (acc, g) =>
-          selectedDates.has(g.date)
+          selectedFolderNames.has(g.folderName)
             ? acc + g.transit.length + g.darks.length
             : acc,
         0,
@@ -915,7 +932,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
         return;
       }
     }
-    const allFiles = buildAllFiles(preview.transitByDate, selectedDates);
+    const allFiles = buildAllFiles(preview.transitByDate, selectedFolderNames);
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -1491,21 +1508,21 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                     ? transitCheck.data.transit
                     : null
                 }
-                selectedDates={selectedDates}
-                onToggleDate={(d: string) => {
-                  setSelectedDates((prev) => {
+                selectedFolderNames={selectedFolderNames}
+                onToggleFolder={(folderName: string) => {
+                  setSelectedFolderNames((prev) => {
                     const next = new Set(prev);
-                    if (next.has(d)) next.delete(d);
-                    else next.add(d);
+                    if (next.has(folderName)) next.delete(folderName);
+                    else next.add(folderName);
                     return next;
                   });
                 }}
                 onSelectAll={() => {
-                  setSelectedDates(
-                    new Set(preview.transitByDate.map((g) => g.date)),
+                  setSelectedFolderNames(
+                    new Set(preview.transitByDate.map((g) => g.folderName)),
                   );
                 }}
-                onSelectNone={() => setSelectedDates(new Set())}
+                onSelectNone={() => setSelectedFolderNames(new Set())}
                 lang={lang}
               />
               <div className="download-actions">

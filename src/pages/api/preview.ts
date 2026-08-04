@@ -36,9 +36,35 @@ import { PreviewRequestSchema, parseBody } from "@/lib/schemas";
 export const prerender = false;
 
 export type DateGroup = {
-  date: string;             // "20260725"
-  transit: ImageRecord[];   // imágenes que pasan
-  darks: ImageRecord[];     // darks de esa fecha
+  /** YYYYMMDD (UTC) del primer frame del grupo. Estable entre sesiones
+   *  del mismo día. La UI lo usa para mostrar la fecha legible y para
+   *  agrupar visualmente. NO se usa como nombre de carpeta del ZIP —
+   *  ver `folderName` más abajo. */
+  date: string;
+  /**
+   * Nombre REAL de la carpeta dentro del ZIP / Google Drive. Por
+   * defecto es igual a `date` (compatibilidad con herramientas
+   * externas que esperan `Target/YYYYMMDD/`). Si hay más de una
+   * sesión el mismo día, las subsiguientes llevan sufijo `-N`
+   * (ej. `20260729-1`, `20260729-2`) para que cada sesión tenga su
+   * propia carpeta y no se mezclen al descomprimir.
+   *
+   * El sufijo es estable entre requests (basado en el orden
+   * cronológico de las sesiones) y consistente con la UI (la tabla
+   * muestra `DD-MM-YYYY` o `DD-MM-YYYY-N` según corresponda).
+   */
+  folderName: string;
+  /** Índice 1-based de la sesión dentro de su día (1 si es la única
+   *  de ese día). Útil para la UI pero NO se usa en nombres de
+   *  carpeta. */
+  sessionIndex: number;
+  /** Total de sesiones en el mismo `date`. 1 si es la única; >1
+   *  cuando hay multi-secuencia y por tanto se aplican sufijos. */
+  sessionCount: number;
+  /** Imágenes de tránsito que pasan los filtros. */
+  transit: ImageRecord[];
+  /** Darks del telescopio elegido en esa fecha. */
+  darks: ImageRecord[];
 };
 
 type PreviewResponse = {
@@ -296,20 +322,74 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  // 6. Agrupar por fecha para la respuesta
-  const byDateMap = new Map<string, ImageRecord[]>();
-  for (const r of finalKept) {
-    const k = dateKey(parseDt(r.datetime));
-    const arr = byDateMap.get(k);
-    if (arr) arr.push(r);
-    else byDateMap.set(k, [r]);
+  // 6. Agrupar por SESIÓN (no por fecha) y asignar sufijos de carpeta.
+  // Por qué por sesión y no por fecha: si hay >1 sesión en el mismo día
+  // (p.ej. 08:10-09:27 y 10:00-10:30 con un gap de 33 min), el agrupamiento
+  // por fecha las fusionaría en un solo grupo y el ZIP contendría una sola
+  // carpeta mezclando ambas sesiones. Aquí las separamos en grupos
+  // independientes y, si comparten `date` (YYYYMMDD), añadimos sufijo
+  // `-N` al `folderName` (1, 2, 3...) para que el ZIP/Drive tenga
+  // carpetas distintas. La UI muestra el sufijo para que el usuario
+  // distinga las sesiones visualmente.
+  //
+  // Caso especial: sesiones que cruzan medianoche. Una sesión 22:00-02:00
+  // tendría `startDate != endDate`; aquí usamos `startDate` como `date`
+  // y le asignamos darks de ESA fecha (mantiene el comportamiento previo).
+  const finalSessions = clusterSessions(finalKept);
+
+  // Asignar índice y total por día
+  const sessionsByDate = new Map<string, number>();
+  for (const s of finalSessions) {
+    sessionsByDate.set(s.startDate, (sessionsByDate.get(s.startDate) ?? 0) + 1);
   }
+  const sessionIndexByDate = new Map<string, number>();
+
   const transitByDate: DateGroup[] = [];
-  for (const [date, transit] of byDateMap) {
-    const darks = requireDarks ? (darkByDateMap.get(date) ?? []) : (darkByDateMap.get(date) ?? []);
-    transitByDate.push({ date, transit, darks });
+  for (const session of finalSessions) {
+    const date = session.startDate;
+    const sessionCount = sessionsByDate.get(date) ?? 1;
+    // sessionIndex: 1 si es la única, 1..N si hay varias
+    const sessionIndex = (sessionIndexByDate.get(date) ?? 0) + 1;
+    sessionIndexByDate.set(date, sessionIndex);
+
+    // Imágenes de ESTA sesión (no de todas las del día, que es lo que
+    // hacía el código antiguo). Usamos el rango temporal de la sesión
+    // para filtrar, igual que en `applyGapFilter`.
+    const sessionStartMs = parseDt(session.start).getTime();
+    const sessionEndMs = parseDt(session.end).getTime();
+    const transit = finalKept
+      .filter((r) => {
+        const t = parseDt(r.datetime).getTime();
+        return t >= sessionStartMs && t <= sessionEndMs;
+      })
+      .sort(
+        (a, b) => parseDt(a.datetime).getTime() - parseDt(b.datetime).getTime(),
+      );
+
+    // Darks de la fecha de la sesión. Mantenemos `requireDarks` como
+    // estaba: si requireDarks=true, darkByDateMap solo tiene fechas
+    // con darks; si no, podría venir vacío.
+    const darks = darkByDateMap.get(date) ?? [];
+
+    // folderName: sufijo -N si hay multi-secuencia en este día
+    const folderName = sessionCount > 1 ? `${date}-${sessionIndex}` : date;
+
+    transitByDate.push({
+      date,
+      folderName,
+      sessionIndex,
+      sessionCount,
+      transit,
+      darks,
+    });
   }
-  transitByDate.sort((a, b) => a.date.localeCompare(b.date));
+  // Ya vienen ordenadas cronológicamente por clusterSessions, pero por
+  // seguridad las reordenamos por date+sessionIndex para que la tabla
+  // sea estable entre requests.
+  transitByDate.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) || a.sessionIndex - b.sessionIndex,
+  );
 
   // Solo reportamos descartados del tránsito (no de darks)
   const transitDiscarded = finalDiscarded
@@ -397,12 +477,11 @@ export const POST: APIRoute = async ({ request }) => {
       .sort((a, b) => a.date.localeCompare(b.date)),
   };
 
-  // Re-clusterizamos la secuencia FINAL (después de aplicar filtros de
-  // weather + gap + darks) en sesiones. Esto es lo que se muestra al
+  // Reutilizamos `finalSessions` (calculado en la sección 6) para
+  // reportar las ventanas de sesión. Esto es lo que se muestra al
   // usuario: si después de descartar imágenes la secuencia queda
   // partida en 2 sesiones (p.ej. porque se eliminó el bloque central
   // por nubosidad), eso debe verse.
-  const finalSessions = clusterSessions(finalKept);
   const sessionWindows = finalSessions.map((s) => ({
     start: s.start,
     end: s.end,

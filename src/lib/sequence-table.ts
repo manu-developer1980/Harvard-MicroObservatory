@@ -8,9 +8,16 @@
  */
 import { parseDt, type ImageRecord } from "@/lib/filters";
 
-/** Una fecha con sus tránsitos y darks. Réplica de `DateGroup` en `preview.ts`. */
+/** Una sesión con sus imágenes de tránsito y darks. Réplica de `DateGroup` en
+ *  `preview.ts`. El campo `folderName` es el nombre REAL de la carpeta dentro
+ *  del ZIP / Google Drive (incluye sufijo `-N` cuando hay multi-secuencia
+ *  el mismo día, p.ej. `20260729-2`). El campo `date` es la fecha UTC
+ *  estable (YYYYMMDD) que la UI muestra. */
 export type DateGroupLite = {
-  date: string;             // "20260725"
+  date: string;             // "20260725" — fecha UTC (sin sufijo)
+  folderName: string;       // "20260725" o "20260725-2" si hay multi-sesión
+  sessionIndex: number;     // 1-based
+  sessionCount: number;     // total de sesiones en este día
   transit: ImageRecord[];   // imágenes que pasan
   darks: ImageRecord[];     // darks de esa fecha
 };
@@ -27,26 +34,32 @@ export type DriveFile = { path: string; file: string };
 /**
  * Construye la lista de archivos a descargar/subir a partir del preview,
  * replicando exactamente la estructura de carpetas que usa el ZIP:
- *   <date>/<fits>           para tránsitos
- *   <date>/darks/<fits>     para darks
+ *   <folderName>/<fits>           para tránsitos
+ *   <folderName>/darks/<fits>     para darks
  *
- * Si se pasa `selectedDates`, solo se incluyen los grupos cuya fecha
- * esté en el Set. Si no se pasa (o es undefined), se incluyen todos
- * los grupos — útil para mantener compatibilidad cuando aún no hay UI
- * de selección (p.ej. una sola secuencia).
+ * El `folderName` se usa en lugar de `date` para que, cuando hay
+ * multi-secuencia el mismo día, cada sesión acabe en su propia
+ * carpeta (`20260729-1`, `20260729-2`) y no se mezclen al
+ * descomprimir. Ver `preview.ts` para la lógica de asignación de
+ * sufijos.
+ *
+ * Si se pasa `selectedFolderNames` (Set de folderNames), solo se
+ * incluyen los grupos cuyo folderName esté en el Set. Si no se pasa
+ * (o es undefined), se incluyen todos los grupos — útil para
+ * mantener compatibilidad cuando aún no hay UI de selección.
  */
 export function buildAllFiles(
   groups: ReadonlyArray<DateGroupLite>,
-  selectedDates?: ReadonlySet<string>,
+  selectedFolderNames?: ReadonlySet<string>,
 ): DriveFile[] {
   const all: DriveFile[] = [];
   for (const g of groups) {
-    if (selectedDates && !selectedDates.has(g.date)) continue;
+    if (selectedFolderNames && !selectedFolderNames.has(g.folderName)) continue;
     for (const r of g.transit) {
-      all.push({ path: `${g.date}/${r.fits}`, file: r.fits });
+      all.push({ path: `${g.folderName}/${r.fits}`, file: r.fits });
     }
     for (const r of g.darks) {
-      all.push({ path: `${g.date}/darks/${r.fits}`, file: r.fits });
+      all.push({ path: `${g.folderName}/darks/${r.fits}`, file: r.fits });
     }
   }
   return all;
