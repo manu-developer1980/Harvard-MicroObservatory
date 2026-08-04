@@ -10,6 +10,12 @@
  * que no usamos) o un triple-slash a URLs externas (que requiere
  * red), declaramos SOLO lo que necesitamos. El Deno runtime
  * validará el resto.
+ *
+ * IMPORTANTE: este archivo NO puede vivir dentro de
+ * `netlify/edge-functions/` porque Netlify auto-bundlea CADA
+ * archivo de ese directorio como si fuera una edge function, y
+ * un `.d.ts` no tiene default export → build falla con
+ * "Default export must be a function".
  */
 
 // Globals de Deno (subset mínimo que usamos).

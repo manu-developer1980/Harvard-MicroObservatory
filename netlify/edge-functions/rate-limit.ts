@@ -31,6 +31,17 @@
 //   RATE_LIMIT_PREVIEW_MAX          (default 30)
 //   RATE_LIMIT_TRANSIT_CHECK_MAX    (default 20)
 //   RATE_LIMIT_WINDOW_SEC           (default 60)
+//
+// TIPOS
+// -----
+// Las declaraciones de tipos (Deno globals, Context, Blobs Store)
+// viven en `netlify/types.d.ts` — un nivel por ENCIMA de este
+// directorio, porque Netlify auto-bundlea CADA archivo dentro de
+// `netlify/edge-functions/` como una edge function, y un `.d.ts`
+// no tiene default export → la build falla con
+// "Default export must be a function".
+
+/// <reference path="../types.d.ts" />
 
 import type { Context } from "https://edge.netlify.com";
 // Importamos @netlify/blobs desde esm.sh con versión pinneada
