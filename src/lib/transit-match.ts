@@ -576,6 +576,20 @@ export function normalizeTargetForNasa(input: string): string[] {
       .replace(/(\d)([A-Z][a-z]?)$/, "$1 $2"),
   );
 
+  // (5) HATP-NN → HAT-P-NN (formato MO sin guion → formato NASA con
+  //     guion). Caso bug ago-2026: MicroObservatory escribe la
+  //     familia HAT-P-NN como "HATP-27" en su desplegable y su
+  //     `SearchFor=`. Si el frontend alguna vez envía "HATP-27" al
+  //     transit-check (campo libre, no del select normalizado),
+  //     necesitamos que matchee con la fila "HAT-P-27 b" de NASA.
+  //     Esta variante es la inversa de `toMoSearchName` en
+  //     `src/lib/mo-client.ts`. Mantener ambas funciones simétricas
+  //     es la red de seguridad: si una se actualiza, la otra
+  //     también.
+  if (/^HATP-\d/i.test(trim)) {
+    candidates.add(trim.replace(/^HATP-/, "HAT-P-"));
+  }
+
   return Array.from(candidates);
 }
 

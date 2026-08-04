@@ -14,16 +14,53 @@ export type FetchHtmlOptions = {
   sortRange?: string;   // días hacia atrás
 };
 
+/**
+ * Convierte un nombre de target en formato canónico (NASA) al formato
+ * que MicroObservatory espera en su `?SearchFor=`.
+ *
+ * Caso bug ago-2026: la familia HAT-P-NN (e.g. "HAT-P-27") vive en
+ * dos formatos incompatibles:
+ *   - NASA Exoplanet Archive: "HAT-P-19" (con guion entre HAT y P)
+ *   - MicroObservatory:       "HATP-19"  (sin guion)
+ *
+ * El desplegable y la BÚSQUEDA de MO usan exclusivamente "HATP-19".
+ * Si mandamos "HAT-P-19" a MO, devuelve 0 filas. Por eso el frontend
+ * puede mostrar el formato canónico (que es el que el usuario
+ * reconoce) pero la request a MO debe transformarse.
+ *
+ * Esta función es la inversa de `normalizeMoName` en
+ * `src/lib/targets.ts`: una convierte MO→NASA, esta convierte
+ * NASA→MO. Mantenemos las conversiones EXPLÍCITAS y simétricas
+ * para que un cambio en un sitio requiera actualizar el otro.
+ *
+ * Si en el futuro MO cambiase su formato (e.g. aceptar "HAT-P-19"
+ * directamente), basta con eliminar esta función.
+ */
+export function toMoSearchName(target: string): string {
+  // HAT-P-NN → HATP-NN (sin guion). Bug ago-2026.
+  if (/^HAT-P-\d/i.test(target)) {
+    return target.replace(/^HAT-P-/, "HATP-");
+  }
+  return target;
+}
+
 export async function fetchHtml(opts: FetchHtmlOptions): Promise<string | null> {
   const {
     target,
     type = "Object",
     sortRange = "500",
   } = opts;
+  // MicroObservatory usa un formato distinto al de NASA para la
+  // familia HAT-P-NN (ver `toMoSearchName`). Sin esta traducción,
+  // el endpoint /api/preview devuelve 0 filas para "HAT-P-27" aunque
+  // el target SÍ esté en el archivo. El test E2E con curl confirmó:
+  //   SearchFor=HAT-P-27 → 0 filas
+  //   SearchFor=HATP-27  → 1 fila de Object_
+  const moName = toMoSearchName(target);
   const url = new URL(MO_LIST_URL);
   url.searchParams.set("SortBy", "Date");
   url.searchParams.set("SortPos", "DESC");
-  url.searchParams.set("SearchFor", target);
+  url.searchParams.set("SearchFor", moName);
   url.searchParams.set("Type", type);
   url.searchParams.set("SortRange", sortRange);
 
