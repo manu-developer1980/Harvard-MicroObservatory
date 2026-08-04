@@ -13,6 +13,7 @@
  *     varias efemérides candidatas; vive en el endpoint)
  */
 import { jdToUtcIso, isoToMoFormat } from "@/lib/jd";
+import { sqlEscapeLike } from "@/lib/sql-escape";
 
 export type PlanetEph = {
   pl_name: string;
@@ -576,4 +577,51 @@ export function normalizeTargetForNasa(input: string): string[] {
   );
 
   return Array.from(candidates);
+}
+
+// ---------------------------------------------------------------------------
+// SQL builder: query TAP a la tabla `ps` con matching anclado por espacio
+// ---------------------------------------------------------------------------
+
+/**
+ * Construye la query TAP a la tabla `ps` de NASA Exoplanet Archive para
+ * sacar TODAS las efemérides candidatas de un planeta. La query es
+ * case-INsensitive (LOWER en ambos lados) y cubre tres casos:
+ *
+ *   1. `LOWER(hostname) = LOWER(target)` — match exacto de hostname
+ *      (cubre "WASP-2" → fila con hostname "WASP-2" + pl_name "WASP-2 b").
+ *   2. `LOWER(pl_name) = LOWER(target)` — match exacto de pl_name por
+ *      si el usuario escribió el nombre completo del planeta
+ *      (e.g. "WASP-2 b" como input).
+ *   3. `LOWER(pl_name) LIKE LOWER('<target> %')` — match del prefijo
+ *      SEGUIDO DE ESPACIO. Esto es CRÍTICO: usar `${safe}%` con
+ *      wildcard suelto (sin espacio) hacía que "WASP-2" matcheara
+ *      WASP-2 b pero TAMBIÉN WASP-20 b, WASP-21 b, ..., WASP-29 b
+ *      (86 filas extra de 9 planetas distintos). El
+ *      `pickMostPreciseEphemeris` mezclaba esas efemérides y elegía
+ *      una con periodo arbitrario (e.g. WASP-25 b, P=3.76 d) que
+ *      predecía a las 13:54 UTC en vez de las 7:24 reales de
+ *      WASP-2 b (P=2.15 d). El espacio literal en el LIKE ancla
+ *      el patrón al nombre del sistema, descartando planetas cuyo
+ *      nombre empieza por los mismos dígitos (WASP-20*, WASP-21*,
+ *      etc.). Ver test "WASP-2 LIKE bug" en `transit-match.test.ts`.
+ *
+ * El wildcard al final (`%`) tras el espacio sigue siendo necesario
+ * para capturar sufijos como "b", "c", "A b" (binario +
+ * componente). El escape de wildcards del usuario (`%`, `_`) lo
+ * hace `sqlEscapeLike`; el `\` que añadimos al final NO necesita
+ * escape porque es un carácter LITERAL del patrón (no un
+ * wildcard).
+ */
+export function buildPsTapQuery(target: string): string {
+  const safe = sqlEscapeLike(target);
+  return (
+    `SELECT pl_name, hostname, pl_orbper, pl_orbpererr1, pl_tranmid, ` +
+    `pl_tranmiderr1, pl_tranmiderr2, pl_trandur, pl_refname ` +
+    `FROM ps ` +
+    `WHERE (LOWER(hostname) = LOWER('${safe}') ` +
+    `OR LOWER(pl_name) = LOWER('${safe}') ` +
+    `OR LOWER(pl_name) LIKE LOWER('${safe} %') ESCAPE '\\') ` +
+    `AND tran_flag = 1`
+  );
 }

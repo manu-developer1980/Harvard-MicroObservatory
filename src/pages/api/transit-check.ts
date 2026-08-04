@@ -53,9 +53,9 @@ import {
   type TransitHit,
   matchMostPreciseEphemeris,
   normalizeTargetForNasa,
+  buildPsTapQuery,
 } from "@/lib/transit-match";
 import { TransitCheckRequestSchema, parseBody } from "@/lib/schemas";
-import { sqlEscapeLike } from "@/lib/sql-escape";
 
 export const prerender = false;
 
@@ -224,34 +224,12 @@ async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
  * (`normalizeTargetForNasa`) para poder testearla aislada.
  */
 async function findPlanetEphemeridesExact(target: string): Promise<PlanetEph[]> {
-  const safe = sqlEscapeLike(target);
-  // Cubrimos: hostname exacto, pl_name LIKE prefijo. El prefijo en pl_name
-  // atrapa "WASP-135" -> "WASP-135 b" y "WASP-135 A" -> "WASP-135 A b".
-  // Filtramos por tran_flag = 1 (solo planetas con tránsitos observados).
-  // NO filtramos por default_flag=1 (ver comentario más abajo) ni ordenamos
-  // aquí: la selección de la "más precisa" se hace en el caller en función
-  // de la incertidumbre propagada a la fecha de la consulta.
-  //
-  // Matching case-INsensitive: NASA almacena los hostnames con la
-  // capitalización original de la publicación (TrES-3, GJ-436, WASP-12,
-  // HD-189733, KELT-9, etc.) y los usuarios suelen escribirlos en
-  // mayúsculas (TRES-3, WASP-135). `LIKE` y `=` en ADQL son
-  // case-sensitive, así que un "TRES-3" no matcheaba "TrES-3". Envolvemos
-  // ambas partes en `LOWER()` para que cualquier capitalización del input
-  // matchee el formato canónico.
-  //
-  // ESCAPE '\\' en LIKE: necesario porque `sqlEscape` neutraliza los
-  // wildcards `%` y `_` con prefijo `\`. Sin ESCAPE, un usuario podría
-  // enumerar la tabla metiendo `WASP-1%` y matchear WASP-12, WASP-121,
-  // etc. (defense in depth: el endpoint es read-only, pero la
-  // enumeración de planetas no es deseada).
-  const query =
-    `SELECT pl_name, hostname, pl_orbper, pl_orbpererr1, pl_tranmid, ` +
-    `pl_tranmiderr1, pl_tranmiderr2, pl_trandur, pl_refname ` +
-    `FROM ps ` +
-    `WHERE (LOWER(hostname) = LOWER('${safe}') ` +
-    `OR LOWER(pl_name) LIKE LOWER('${safe}%') ESCAPE '\\') ` +
-    `AND tran_flag = 1`;
+  // La query completa (escape + LIKE anclado) vive en
+  // `@/lib/transit-match → buildPsTapQuery`. La extrajimos ahí para
+  // poder testearla aislada del endpoint y de la TAP fetch — ver
+  // `transit-match.test.ts → WASP-2 LIKE bug` para el test de
+  // regresión que documenta el bug del wildcard suelto.
+  const query = buildPsTapQuery(target);
 
   const result = await tapQuery(query);
   return result ?? [];

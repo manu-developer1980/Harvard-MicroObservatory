@@ -26,6 +26,7 @@ import {
   matchMostPreciseEphemeris,
   pickMostPreciseEphemeris,
   normalizeTargetForNasa,
+  buildPsTapQuery,
   TRANSIT_MATCH_TOLERANCE_DAYS,
   type PlanetEph,
 } from "@/lib/transit-match";
@@ -722,5 +723,92 @@ describe("normalizeTargetForNasa: casos reales reportados", () => {
   it("incluye el input literal como primera variante (cero overhead si ya matchea)", () => {
     const variants = normalizeTargetForNasa("KELT-23A");
     expect(variants[0]).toBe("KELT-23A");
+  });
+});
+
+/**
+ * REGRESIÓN ago-2026: la TAP query a la tabla `ps` con
+ * `LIKE LOWER('WASP-2%')` (wildcard suelto al final) capturaba
+ * 102 filas de 9 planetas distintos (WASP-2, WASP-20, WASP-21,
+ * WASP-22, ..., WASP-29), no solo WASP-2 b. El
+ * `pickMostPreciseEphemeris` mezclaba esas efemérides y elegía una
+ * con periodo arbitrario (e.g. WASP-25 b, P=3.76 d) que predecía
+ * un tránsito a las 13:54 UTC en vez de las 7:24 reales de
+ * WASP-2 b (P=2.15 d).
+ *
+ * El fix es cambiar el patrón de `${safe}%` a `${safe} %` (espacio
+ * LITERAL antes del wildcard), para que solo matchee pl_name que
+ * empiece por el input seguido de un espacio: "WASP-2 b", "WASP-2 c",
+ * "WASP-2 A b" — pero NO "WASP-20 b", "WASP-21 b", etc.
+ *
+ * Estos tests verifican la QUERY GENERADA por `buildPsTapQuery`
+ * (no la respuesta de NASA, que requeriría mockear la TAP fetch).
+ * El bug se reproduciría en cuanto alguien quitase el espacio del
+ * LIKE — si ves uno de estos tests fallar, NO aceptes el cambio
+ * sin entender por qué.
+ */
+describe("buildPsTapQuery: WASP-2 LIKE bug (regresión ago-2026)", () => {
+  it("el LIKE usa ESPACIO LITERAL antes del wildcard (no wildcard suelto)", () => {
+    const q = buildPsTapQuery("WASP-2");
+    // El bug era: LIKE LOWER('WASP-2%')  (sin espacio)
+    // El fix es:  LIKE LOWER('WASP-2 %') (con espacio)
+    expect(q).toContain("LIKE LOWER('WASP-2 %')");
+    expect(q).not.toContain("LIKE LOWER('WASP-2%')");
+  });
+
+  it("no aparece NINGÚN patrón LIKE con wildcard suelto al final", () => {
+    // Defense in depth: revisar toda la query por el patrón
+    // `<algo>%'` (comilla inmediatamente después de %).
+    const q = buildPsTapQuery("WASP-2");
+    // El % solo puede aparecer tras un espacio, un LOWER( o un \
+    // (escape). Aquí nos aseguramos de que no haya `${algo}%'`
+    // directo.
+    expect(q).not.toMatch(/[A-Za-z0-9-]%'/);
+  });
+
+  it("combina hostname exacto + pl_name exacto + pl_name LIKE con espacio", () => {
+    const q = buildPsTapQuery("WASP-2");
+    expect(q).toContain("LOWER(hostname) = LOWER('WASP-2')");
+    expect(q).toContain("LOWER(pl_name) = LOWER('WASP-2')");
+    expect(q).toContain("LIKE LOWER('WASP-2 %')");
+  });
+
+  it("ESCAPE '\\\\' está presente para neutralizar wildcards del usuario", () => {
+    const q = buildPsTapQuery("WASP-2");
+    expect(q).toContain("ESCAPE '\\'");
+  });
+
+  it("escapa comillas y wildcards en el input del usuario", () => {
+    // Si el usuario mete un apóstrofe o un %, debe escaparse.
+    const q = buildPsTapQuery("WASP%2");
+    // El % del usuario se escapa como \%, y el espacio+wildcard que
+    // añadimos nosotros va DESPUÉS (sin escape porque es intencional).
+    expect(q).toContain("LIKE LOWER('WASP\\%2 %')");
+  });
+
+  it("escapa comillas simples (defense contra SQL injection)", () => {
+    const q = buildPsTapQuery("O'Brien");
+    // Las comillas se duplican en SQL estándar.
+    expect(q).toContain("'O''Brien'");
+  });
+
+  it("preserva guiones y dígitos (formato NASA estándar)", () => {
+    const q = buildPsTapQuery("WASP-135");
+    expect(q).toContain("LOWER('WASP-135')");
+  });
+
+  it("REGRESIÓN: la query para 'WASP-2' NO debe capturar WASP-20/21/25/etc", () => {
+    // Verificación simbólica: el patrón LIKE termina en "WASP-2 %",
+    // que en LIKE significa "WASP-2" + espacio + cualquier cosa. Por
+    // lo tanto "WASP-20 b" no matchea (el carácter tras "WASP-2" es
+    // "0", no espacio). Si alguien quita el espacio del fix, este
+    // test sigue pasando (no comprueba NASA, solo el shape de la
+    // query), por lo que es principalmente documentación.
+    const q = buildPsTapQuery("WASP-2");
+    // El wildcard intencional va precedido de espacio
+    const likeMatch = q.match(/LIKE LOWER\('([^']+)'\)/);
+    expect(likeMatch).not.toBeNull();
+    const pattern = likeMatch![1];
+    expect(pattern).toBe("WASP-2 %");
   });
 });
