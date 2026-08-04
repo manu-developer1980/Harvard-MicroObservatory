@@ -112,10 +112,10 @@ export const es = {
   "darkDebug.headers.filters": "Filtros",
   "darkDebug.headers.times": "Horas (UTC)",
 
-  // Cross-check con NASA Exoplanet Archive
+  // Cross-check con NASA Exoplanet Archive. Una sola predicción
+  // de la efeméride "most precise" (réplica del TransitView).
   "transit.title": "Predicción de tránsito (NASA Exoplanet Archive)",
   "transit.loading": "Comprobando NASA Exoplanet Archive…",
-  "transit.found": "Midpoint de tránsito detectado en la ventana ({count})",
   "transit.foundOne": "Midpoint de tránsito detectado en la ventana",
   "transit.nearMiss": "El tránsito más cercano estaba {minutes} min {sign} de tu ventana",
   "transit.nearMissBefore": "antes",
@@ -134,8 +134,7 @@ export const es = {
   "transit.legendSource": "Fuente: NASA Exoplanet Archive",
   "transit.viewInArchive": "Ver en Exoplanet Archive",
   "transit.uncertainty": "±{minutes} min de incertidumbre",
-  "transit.midpoints": "Midpoints predichos:",
-  "transit.midpointItem": "{time} (±{minutes} min)",
+  "transit.midpoint": "Midpoint predicho:",
   "transit.ephemeris": "Efemérides: {reference}",
 
   "progress.downloading": "Descargando {done}/{total} — {current}",

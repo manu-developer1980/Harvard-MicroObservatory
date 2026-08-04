@@ -1428,7 +1428,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                       transitCheck.data.transit && (
                         <>
                           <p className="hint">
-                            {i18n("transit.midpoints", lang)}
+                            {i18n("transit.midpoint", lang)}
                           </p>
                           <ul className="transit-midpoints">
                             <li>
