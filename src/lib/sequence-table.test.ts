@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildAllFiles,
   groupContainsTransit,
+  transitOffsetVsGroup,
   type DateGroupLite,
 } from "@/lib/sequence-table";
 import type { ImageRecord } from "@/lib/filters";
@@ -270,5 +271,173 @@ describe("buildAllFiles: multi-secuencia mismo día (sufijo -N)", () => {
       { path: "20260802-1/b1.FITS", file: "b1.FITS" },
       { path: "20260802-2/b2.FITS", file: "b2.FITS" },
     ]);
+  });
+});
+
+/**
+ * `transitOffsetVsGroup` calcula el offset del midpoint contra el
+ * borde más cercano de un grupo. La UI lo usa para decidir si el
+ * tránsito está "found" (offset 0), "near-miss" (|offset| <= 120 min)
+ * o "not found" (|offset| > 120 min), midiéndolo contra la SESIÓN
+ * más relevante (no contra el rango global de todas las imágenes).
+ */
+describe("transitOffsetVsGroup", () => {
+  it("devuelve 0 si el midpoint cae dentro del grupo", () => {
+    const grp = mkGroup(
+      "20260727",
+      [rec("a", "27-Jul-2026 03:22:11"), rec("b", "27-Jul-2026 05:18:15")],
+    );
+    expect(
+      transitOffsetVsGroup(grp, {
+        midtimeIso: "2026-07-27T05:00:00.000Z",
+      }),
+    ).toBe(0);
+  });
+
+  it("devuelve 0 en el BORDE inferior (firstMs == midMs)", () => {
+    const grp = mkGroup(
+      "20260727",
+      [rec("a", "27-Jul-2026 05:34:11"), rec("b", "27-Jul-2026 09:00:00")],
+    );
+    expect(
+      transitOffsetVsGroup(grp, {
+        midtimeIso: "2026-07-27T05:34:11.000Z",
+      }),
+    ).toBe(0);
+  });
+
+  it("devuelve NEGATIVO si el midpoint cae después del fin del grupo", () => {
+    // Caso real reportado: tránsito a 05:34, sesión 1 termina a 05:18 → -16 min
+    const grp = mkGroup(
+      "20260727",
+      [
+        rec("a", "27-Jul-2026 03:22:11"),
+        rec("b", "27-Jul-2026 05:18:15"),
+      ],
+    );
+    const offset = transitOffsetVsGroup(grp, {
+      midtimeIso: "2026-07-27T05:34:11.000Z",
+    });
+    expect(offset).not.toBeNull();
+    expect(offset!).toBeLessThan(0);
+    // 05:34:11 - 05:18:15 = 15:56 = 15.93 min, redondeado a 16
+    expect(offset!).toBe(-16);
+  });
+
+  it("devuelve POSITIVO si el midpoint cae antes del inicio del grupo", () => {
+    const grp = mkGroup(
+      "20260730",
+      [rec("a", "30-Jul-2026 05:30:21"), rec("b", "30-Jul-2026 09:06:15")],
+    );
+    // tránsito a 05:00 (30 min antes del inicio de la sesión 2)
+    expect(
+      transitOffsetVsGroup(grp, {
+        midtimeIso: "2026-07-30T05:00:00.000Z",
+      }),
+    ).toBe(30);
+  });
+
+  it("devuelve null si el grupo no tiene imágenes de tránsito", () => {
+    const grp = mkGroup(
+      "20260727",
+      [],
+      [rec("d", "27-Jul-2026 06:00:00")],
+    );
+    expect(
+      transitOffsetVsGroup(grp, { midtimeIso: "2026-07-27T05:34:00.000Z" }),
+    ).toBeNull();
+  });
+
+  it("devuelve null si el tránsito es null", () => {
+    const grp = mkGroup(
+      "20260727",
+      [rec("a", "27-Jul-2026 03:22:11")],
+    );
+    expect(transitOffsetVsGroup(grp, null)).toBeNull();
+  });
+
+  it("devuelve null si midtimeIso no es parseable", () => {
+    const grp = mkGroup(
+      "20260727",
+      [rec("a", "27-Jul-2026 03:22:11")],
+    );
+    expect(transitOffsetVsGroup(grp, { midtimeIso: "not-a-date" })).toBeNull();
+  });
+
+  it("ignora los darks al calcular el rango del grupo", () => {
+    // grupo con 1 transit (08:00) y 1 dark (03:00). Si el dark se
+    // incluyera, el rango sería 03:00-08:00 y el tránsito a 05:30
+    // estaría dentro. Sin el dark, el rango es 08:00-08:00 (un solo
+    // punto) y el tránsito a 05:30 está 30 min antes.
+    const grp = mkGroup(
+      "20260802",
+      [rec("a", "02-Aug-2026 08:00:00")],
+      [rec("d", "02-Aug-2026 03:00:00")],
+    );
+    expect(
+      transitOffsetVsGroup(grp, { midtimeIso: "2026-08-02T05:30:00.000Z" }),
+    ).toBe(150);
+  });
+});
+
+/**
+ * REGRESIÓN (ago-2026): el usuario reportó inconsistencia en
+ * multi-sesión de días DISTINTOS. Caso WASP-80 b con:
+ *   Sesión 1: 27-Jul-2026 03:22 → 05:18 (1h 56min, 39 imágenes)
+ *   Sesión 2: 30-Jul-2026 05:30 → 09:06 (3h 36min, 73 imágenes)
+ *   Tránsito: 27-Jul-2026 05:34 (WASP-80 b según NASA)
+ *
+ * ANTES del fix: el endpoint /api/transit-check se llamaba con el
+ * rango GLOBAL (03:22 del 27 → 09:06 del 30) y devolvía
+ * `found: true, offsetMin: 0` porque el tránsito cae dentro del
+ * rango global. Pero la sesión relevante (la 1) tiene el tránsito
+ * 16 min después de su fin, así que decir "found" es engañoso.
+ *
+ * DESPUÉS del fix: el frontend recalcula el offset contra cada
+ * sesión con `transitOffsetVsGroup` y reporta "nearMiss" con
+ * offsetMin=-16 contra la Sesión 1. La Sesión 2 queda a -4317 min
+ * (3 días) y no afecta al estado.
+ */
+describe("REGRESIÓN: WASP-80 b multi-sesión días distintos", () => {
+  const sesion1 = mkGroup(
+    "20260727",
+    [rec("a", "27-Jul-2026 03:22:11"), rec("b", "27-Jul-2026 05:18:15")],
+  );
+  const sesion2 = mkGroup(
+    "20260730",
+    [rec("a", "30-Jul-2026 05:30:21"), rec("b", "30-Jul-2026 09:06:15")],
+  );
+  const transit = { midtimeIso: "2026-07-27T05:34:11.000Z" };
+
+  it("Sesión 1: offset -16 (16 min después del fin)", () => {
+    expect(transitOffsetVsGroup(sesion1, transit)).toBe(-16);
+  });
+
+  it("Sesión 2: offset muy negativo (3 días antes de su inicio)", () => {
+    // 30-Jul-2026 05:30:21 - 27-Jul-2026 05:34:11 = ~3 días = ~4317 min
+    const off = transitOffsetVsGroup(sesion2, transit);
+    expect(off).not.toBeNull();
+    expect(off!).toBeGreaterThan(3000);
+  });
+
+  it("mejor (mínimo absoluto) es -16 (la sesión 1 es la relevante)", () => {
+    const candidates = [sesion1, sesion2].map((g) =>
+      transitOffsetVsGroup(g, transit),
+    );
+    const best = candidates
+      .filter((o): o is number => o !== null)
+      .reduce(
+        (acc, o) => (Math.abs(o) < Math.abs(acc) ? o : acc),
+        Number.POSITIVE_INFINITY,
+      );
+    expect(best).toBe(-16);
+  });
+
+  it("el grupo que contiene el tránsito NO contiene el midpoint (caso del usuario)", () => {
+    // El tránsito está 16 min después del fin de la sesión 1,
+    // por lo que groupContainsTransit devuelve false. La UI NO
+    // muestra tick verde en esta sesión — el tick solo aparece
+    // cuando el tránsito cae ESTRICTAMENTE dentro de la sesión.
+    expect(groupContainsTransit(sesion1, transit)).toBe(false);
   });
 });

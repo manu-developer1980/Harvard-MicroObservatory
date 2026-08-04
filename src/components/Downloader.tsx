@@ -7,6 +7,7 @@ import {
 import {
   buildAllFiles,
   groupContainsTransit,
+  transitOffsetVsGroup,
 } from "@/lib/sequence-table";
 import type { DateGroup } from "@/pages/api/preview";
 import {
@@ -975,6 +976,21 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // dentro de la ventana. Token anti-race: si el usuario cambia el target
   // y vuelve a pedir preview mientras la consulta anterior sigue en vuelo,
   // descartamos su respuesta.
+  //
+  // IMPORTANTE (multi-sesión): el endpoint `/api/transit-check` se llama
+  // con el rango GLOBAL de TODAS las imágenes (`sequenceStart` /
+  // `sequenceEnd`). Eso significa que su `data.found` y
+  // `data.transit.offsetMin` se calculan contra el rango completo, no
+  // contra la sesión individual. Si el usuario tiene 2 sesiones y el
+  // tránsito cae en medio (o 16 min después de la sesión 1 y 3 días
+  // antes de la sesión 2), el endpoint diría "found" con offsetMin=0
+  // porque el rango global SÍ contiene el tránsito — pero la sesión
+  // relevante (la 1) tiene un offset real de -16 min. Por eso, después
+  // de recibir la respuesta del endpoint, recalculamos el offset
+  // contra cada SESIÓN individual con `transitOffsetVsGroup` y
+  // decidimos el estado basándonos en la sesión más relevante. La
+  // predicción del tránsito (data.transit) no cambia; solo cambia
+  // `offsetMin` y la decisión de "found" / "nearMiss" / "notFound".
   useEffect(() => {
     if (!preview?.sequenceStart || !preview.sequenceEnd) {
       setTransitCheck(null);
@@ -999,22 +1015,45 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
             state: "error",
             errorMsg: data.error ?? "?",
           });
-        } else if (data.found) {
-          setTransitCheck({ state: "found", data });
-        } else if (
-          data.transit &&
-          Math.abs(data.transit.offsetMin) <= NEAR_MISS_THRESHOLD_MIN
-        ) {
-          // La predicción de la "most precise" cae fuera pero cerca
-          // (dentro de NEAR_MISS_THRESHOLD_MIN). Avisamos al usuario
-          // de que se perdió por poco.
+          return;
+        }
+        // Recalcular contra cada sesión individual. La predicción
+        // (data.transit) es invariante al rango pasado al endpoint,
+        // solo cambia el offset y el found.
+        const transit = data.transit ?? null;
+        const groups = preview.transitByDate;
+        let bestOffset: number | null = null;
+        for (const g of groups) {
+          const off = transitOffsetVsGroup(g, transit);
+          if (off === null) continue;
+          if (bestOffset === null || Math.abs(off) < Math.abs(bestOffset)) {
+            bestOffset = off;
+          }
+        }
+        // Si no hay grupos o no se pudo calcular, caemos al offset
+        // del endpoint (que será 0 si está dentro del rango global,
+        // o un valor muy grande si está fuera).
+        const effectiveOffset =
+          bestOffset !== null ? bestOffset : (transit?.offsetMin ?? 0);
+        // Reemplazamos el offset del endpoint con el calculado por
+        // sesión. Así la UI muestra el offset real contra la sesión
+        // relevante, no contra el rango global.
+        const adjustedData: TransitCheckResponse = transit
+          ? { ...data, transit: { ...transit, offsetMin: effectiveOffset } }
+          : data;
+        if (effectiveOffset === 0 && transit) {
+          setTransitCheck({ state: "found", data: adjustedData });
+        } else if (Math.abs(effectiveOffset) <= NEAR_MISS_THRESHOLD_MIN) {
+          // La predicción está cerca del borde de la sesión más
+          // relevante (dentro de NEAR_MISS_THRESHOLD_MIN). Avisamos
+          // al usuario de que se perdió por poco.
           setTransitCheck({
             state: "nearMiss",
-            data,
-            offsetMin: data.transit.offsetMin,
+            data: adjustedData,
+            offsetMin: effectiveOffset,
           });
         } else {
-          setTransitCheck({ state: "notFound", data });
+          setTransitCheck({ state: "notFound", data: adjustedData });
         }
       })
       .catch((e) => {
@@ -1024,7 +1063,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
           errorMsg: e instanceof Error ? e.message : String(e),
         });
       });
-  }, [preview?.sequenceStart, preview?.sequenceEnd, preview?.target]);
+  }, [preview, preview?.sequenceStart, preview?.sequenceEnd, preview?.target]);
 
   return (
     <div className="downloader">

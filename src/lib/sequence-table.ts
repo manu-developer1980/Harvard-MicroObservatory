@@ -95,3 +95,46 @@ export function groupContainsTransit(
   }
   return midMs >= firstMs && midMs <= lastMs;
 }
+
+/**
+ * Variante de `groupContainsTransit` que además devuelve el OFFSET en
+ * minutos contra el borde más cercano del grupo:
+ *   - `0` si el midpoint cae dentro (mismo criterio inclusivo que
+ *     `groupContainsTransit`).
+ *   - Positivo si el midpoint está ANTES del inicio del grupo (en
+ *     minutos). Convención consistente con el resto del código:
+ *     positivo = "te has quedado corto por X min", negativo =
+ *     "te has pasado por X min".
+ *   - Negativo si el midpoint está DESPUÉS del fin del grupo.
+ *
+ * Devuelve `null` si no se puede calcular (grupo sin imágenes de
+ * tránsito, tránsito null, datetime inválido).
+ *
+ * Caso de uso clave (multi-sesión): el endpoint `/api/transit-check`
+ * se llama con el rango global de TODAS las imágenes, por lo que su
+ * `offsetMin` puede ser 0 (dentro del rango global) cuando en
+ * realidad el tránsito está 16 min después del fin de la sesión 1 y
+ * 3 días antes de la sesión 2. El frontend usa esta función para
+ * recalcular el offset contra cada sesión y mostrar el más
+ * relevante. Así, un tránsito asociado a la sesión 1 se reporta
+ * correctamente como "16 min después de la sesión 1", no como
+ * "dentro del rango global".
+ */
+export function transitOffsetVsGroup(
+  g: DateGroupLite,
+  transit: TransitHitLike | null,
+): number | null {
+  if (!transit || g.transit.length === 0) return null;
+  const midMs = Date.parse(transit.midtimeIso);
+  if (Number.isNaN(midMs)) return null;
+  let firstMs = Infinity;
+  let lastMs = -Infinity;
+  for (const r of g.transit) {
+    const t = parseDt(r.datetime).getTime();
+    if (t < firstMs) firstMs = t;
+    if (t > lastMs) lastMs = t;
+  }
+  if (midMs < firstMs) return Math.round((firstMs - midMs) / 60000);
+  if (midMs > lastMs) return -Math.round((midMs - lastMs) / 60000);
+  return 0; // dentro
+}
