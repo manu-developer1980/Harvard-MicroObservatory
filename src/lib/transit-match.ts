@@ -17,13 +17,29 @@ import { jdToUtcIso, isoToMoFormat } from "@/lib/jd";
 export type PlanetEph = {
   pl_name: string;
   hostname: string;
-  pl_orbper: number;        // días
-  pl_orbpererr1: number;    // incertidumbre del periodo (días)
-  pl_tranmid: number;       // BJD del tránsito de referencia
-  pl_tranmiderr1: number;   // incertidumbre +1σ (días)
-  pl_tranmiderr2: number;   // incertidumbre -1σ (días)
-  pl_trandur?: number;      // horas (puede ser null/undefined)
-  pl_refname?: string;      // referencia bibliográfica (HTML)
+  pl_orbper: number;             // días
+  /**
+   * Incertidumbre +1σ del periodo, en días. PUEDE ser null en la
+   * tabla `ps` de NASA: hay entradas (p.ej. Stassun 2017 para
+   * WASP-67 b) con P pero sin σ_P. Tratar null como 0 da ventaja
+   * indebida a esas efemérides en el cómputo de σ(t_n); lo
+   * correcto es considerar la incertidumbre como DESCONOCIDA
+   * (= Infinity), no nula.
+   */
+  pl_orbpererr1: number | null;
+  /**
+   * BJD del tránsito de referencia. PUEDE ser null (p.ej. Mancini
+   * 2014 para WASP-67 b tiene P=4.61 sin t_0). Sin t_0 no se
+   * puede predecir ningún tránsito: `transitsInWindow` y
+   * `findNearest` lo filtran.
+   */
+  pl_tranmid: number | null;
+  /** Incertidumbre +1σ de t_0 (días). null si falta. */
+  pl_tranmiderr1: number | null;
+  /** Incertidumbre -1σ de t_0 (días). null si falta. */
+  pl_tranmiderr2: number | null;
+  pl_trandur?: number | null;     // horas (null si falta)
+  pl_refname?: string;           // referencia bibliográfica (HTML)
 };
 
 export type TransitHit = {
@@ -97,17 +113,30 @@ export function stripHtml(s: string | undefined | null): string | undefined {
  * futuro. Por eso NASA usa un flag `ismostprecise=1` que NO es
  * simplemente "menor pl_tranmiderr1", sino la efeméride con menor
  * σ(t_n) en el momento de la consulta.
+ *
+ * Importante sobre campos null/undefined:
+ *   La tabla `ps` de NASA puede tener `pl_tranmid`, `pl_orbpererr1`,
+ *   etc. como `null` para entradas con datos parciales (p.ej. Mancini
+ *   2014 para WASP-67 b: tiene P=4.61 pero sin t_0 ni σ_P; Stassun
+ *   2017: tiene P=4.61442 con σ_P pero sin t_0). NO tratamos esos
+ *   nulos como 0, porque 0 = "incertidumbre nula" (predicción
+ *   perfecta) y haría que esas efemérides ganaran el ranking
+ *   "most precise" de forma falsa. Una incertidumbre desconocida
+ *   es INFINITA, no 0. Devolvemos `Infinity` en esos casos para
+ *   que `pickMostPreciseEphemeris` las descarte.
  */
 export function propagatedUncertainty(
   eph: Pick<PlanetEph, "pl_tranmiderr1" | "pl_tranmiderr2" | "pl_orbpererr1">,
   n: number,
 ): number {
-  const sigmaT0 = Math.max(
-    Math.abs(eph.pl_tranmiderr1 || 0),
-    Math.abs(eph.pl_tranmiderr2 || 0),
-  );
-  const sigmaP = Math.abs(eph.pl_orbpererr1 || 0);
-  return Math.sqrt(sigmaT0 * sigmaT0 + (n * sigmaP) * (n * sigmaP));
+  const t1 = eph.pl_tranmiderr1;
+  const t2 = eph.pl_tranmiderr2;
+  const p = eph.pl_orbpererr1;
+  // Si CUALQUIER componente falta, la incertidumbre es desconocida
+  // (infinita). No es 0.
+  if (t1 == null || t2 == null || p == null) return Infinity;
+  const sigmaT0 = Math.max(Math.abs(t1), Math.abs(t2));
+  return Math.sqrt(sigmaT0 * sigmaT0 + (n * p) * (n * p));
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +157,11 @@ export function transitsInWindow(
   startJd: number,
   endJd: number,
 ): TransitHit[] {
-  if (eph.pl_orbper <= 0) return [];
+  // Sin t_0 no podemos calcular n*P. NASA devuelve null en
+  // `pl_tranmid` para efemérides con datos parciales (caso real:
+  // Stassun 2017 / Mancini 2014 en WASP-67 b). Devolvemos [] para
+  // que no afecte al matching.
+  if (eph.pl_tranmid == null || eph.pl_orbper <= 0) return [];
   const hits: TransitHit[] = [];
 
   const nApprox = Math.round((startJd - eph.pl_tranmid) / eph.pl_orbper);
@@ -180,7 +213,8 @@ export function findNearest(
   startJd: number,
   endJd: number,
 ): TransitHit | null {
-  if (eph.pl_orbper <= 0) return null;
+  // Misma guarda que transitsInWindow: sin t_0 no podemos iterar.
+  if (eph.pl_tranmid == null || eph.pl_orbper <= 0) return null;
   const nApprox = Math.round((startJd - eph.pl_tranmid) / eph.pl_orbper);
   const periodsInWindow = Math.ceil((endJd - startJd) / eph.pl_orbper) + 2;
   const nStart = nApprox - 10;
@@ -255,10 +289,30 @@ export function pickMostPreciseEphemeris(
 ): PlanetEph {
   if (ephs.length === 1) return ephs[0];
 
-  let best: PlanetEph = ephs[0];
+  // Filtro previo: descartamos efemérides con datos incompletos
+  // (NASA devuelve null en `pl_tranmid`, `pl_orbpererr1`, etc. para
+  // entradas parciales — caso real: WASP-67 b tiene Stassun 2017 y
+  // Mancini 2014 con t_0 = null). Sin este filtro, una efeméride
+  // con t_0 null pasaba a "best" porque `propagatedUncertainty`
+  // devolvía 0 (null → 0) y todas las demás σ > 0. Ahora
+  // `propagatedUncertainty` devuelve `Infinity` para nulls, pero
+  // ser explícitos aquí también es defensa en profundidad.
+  const valid = ephs.filter(
+    (e) =>
+      e.pl_orbper > 0 &&
+      e.pl_tranmid != null &&
+      e.pl_orbpererr1 != null,
+  );
+  // Si TODAS son inválidas (caso extremo), caemos a la primera del
+  // array original. El caller (matchMostPreciseEphemeris) maneja
+  // el resultado vacío.
+  const candidates = valid.length > 0 ? valid : ephs;
+
+  let best: PlanetEph = candidates[0];
   let bestSigma = Infinity;
-  for (const eph of ephs) {
-    if (eph.pl_orbper <= 0) continue; // efeméride inválida
+  for (const eph of candidates) {
+    if (eph.pl_orbper <= 0) continue;
+    if (eph.pl_tranmid == null) continue; // defensa redundante
     const n = Math.round((queryJd - eph.pl_tranmid) / eph.pl_orbper);
     const sigma = propagatedUncertainty(eph, n);
     if (sigma < bestSigma) {
@@ -380,17 +434,19 @@ export type MostPreciseMatchResult = {
  * `offsetMin === 0`. Si no, `offsetMin !== 0` indica los minutos de
  * desviación (positivo = antes del inicio, negativo = después del fin).
  *
- * Caso WASP-67 b 2026-07-29 (regresión previa): con `matchAll`, las
- * 6 efemérides predecían 10:03–10:22 (dentro de ventana) y se
- * reportaba "found". Con `matchMostPrecise`, se elige la "most
- * precise" según σ(t_n) en el centro de la ventana — si NASA la
- * marca como tal, la predicción debería caer en ese mismo rango
- * (10:03–10:22) y `found` sigue siendo true. Si nuestra
- * `propagatedUncertainty` discrepa de la de NASA (escogiendo Mancini
- * 2014 en vez de la "true most precise"), la predicción se va a
- * 20:09:36 UTC y `found` pasa a false. Por eso el test de regresión
- * usa la efeméride con `σ_t0` claramente más bajo que las demás —
- * la que se elegiría en la práctica.
+ * Caso WASP-67 b 2026-07-29 (regresión resuelta, ago-2026): la
+ * tabla `ps` de NASA tiene 8 efemérides para WASP-67 b, dos de
+ * ellas con `pl_tranmid = null` y/o `pl_orbpererr1 = null`
+ * (Stassun 2017 y Mancini 2014). Antes del fix,
+ * `propagatedUncertainty` trataba los null como 0, dando σ = 0
+ * para esas dos → se elegían como "most precise" con σ=0, pero
+ * al no tener t_0 el matching daba un "nearest" en 20:09:36 UTC
+ * (10h después del fin) y `found: false`. Tras el fix, los nulls
+ * devuelven `Infinity` en `propagatedUncertainty` y esas dos se
+ * filtran en `pickMostPreciseEphemeris`. La "most precise" real
+ * es Kokori 2022 con σ ≈ 4.1e-4 d, que predice 10:16:16 UTC —
+ * DENTRO de la ventana del usuario (08:10:10 → 10:30:15). Ver
+ * `transit-match.test.ts` (suite "WASP-67 b REAL ephemerides").
  */
 export function matchMostPreciseEphemeris(
   ephs: PlanetEph[],
@@ -403,7 +459,23 @@ export function matchMostPreciseEphemeris(
   // queryJd = centro de la ventana. Para ventanas muy estrechas esto
   // coincide prácticamente con cualquier punto interior.
   const queryJd = (startJd + endJd) / 2;
-  const picked = pickMostPreciseEphemeris(ephs, queryJd);
+  let picked = pickMostPreciseEphemeris(ephs, queryJd);
+
+  // Defensa: si la "picked" sigue siendo inválida (caso extremo:
+  // TODAS las efemérides tienen t_0 o σ_P null), caemos a la
+  // primera que tenga t_0 no-null para poder al menos calcular
+  // "nearest" — aunque la predicción será muy mala, es mejor que
+  // un TransitHit con midJd=null. Si tampoco hay, lanzamos un
+  // error claro.
+  if (picked.pl_tranmid == null) {
+    const fallback = ephs.find((e) => e.pl_tranmid != null);
+    if (!fallback) {
+      throw new Error(
+        "matchMostPreciseEphemeris: ninguna efeméride tiene pl_tranmid válido",
+      );
+    }
+    picked = fallback;
+  }
 
   // Calculamos la predicción con la efeméride elegida. Usamos
   // `transitsInWindow` para saber si está dentro; si no, `findNearest`
@@ -414,10 +486,11 @@ export function matchMostPreciseEphemeris(
   }
   const nearest = findNearest(picked, startJd, endJd);
   if (!nearest) {
-    // Efeméride inválida (pl_orbper <= 0). Imposible en la práctica
-    // porque `pickMostPreciseEphemeris` ya la filtra, pero por si
-    // acaso. Devolvemos un TransitHit "vacío" en n=0.
-    const midJd = picked.pl_tranmid;
+    // Defensa final: si llegamos aquí, picked.pl_tranmid es no-null
+    // (por la guarda anterior) pero findNearest devolvió null. No
+    // debería pasar, pero por si acaso devolvemos un TransitHit con
+    // la t_0 cruda como midpoint (no ideal pero no rompe la UI).
+    const midJd = picked.pl_tranmid as number;
     return {
       picked,
       transit: {

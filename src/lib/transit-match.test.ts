@@ -161,7 +161,35 @@ describe("propagatedUncertainty", () => {
       pl_tranmiderr2: 0,
       pl_orbpererr1: 0,
     };
+    // 0 ≠ null → la incertidumbre SE PUEDE calcular (es 0, predicción
+    // "perfecta" en este caso artificial). Antes del fix, los 0 se
+    // confundían con null y se devolvía Infinity; ahora solo null/
+    // undefined devuelven Infinity, 0 da 0.
     expect(propagatedUncertainty(eph, 100)).toBe(0);
+  });
+
+  it("FIX: con campos null, devuelve Infinity (no 0)", () => {
+    // Caso real NASA: Stassun 2017 / Mancini 2014 para WASP-67 b
+    // tienen pl_tranmiderr1, pl_tranmiderr2, pl_orbpererr1 como
+    // null. Una incertidumbre desconocida NO es 0 (eso sería
+    // "predicción perfecta") ni NaN, sino "infinita" = no usable
+    // para elegir la "most precise".
+    const eph: PlanetEph = {
+      ...wasp67b,
+      pl_tranmiderr1: null,
+      pl_tranmiderr2: null,
+      pl_orbpererr1: null,
+    };
+    expect(propagatedUncertainty(eph, 1000)).toBe(Infinity);
+  });
+
+  it("FIX: con UN solo campo null, ya devuelve Infinity (defense in depth)", () => {
+    const e1: PlanetEph = { ...wasp67b, pl_orbpererr1: null };
+    expect(propagatedUncertainty(e1, 1000)).toBe(Infinity);
+    const e2: PlanetEph = { ...wasp67b, pl_tranmiderr1: null };
+    expect(propagatedUncertainty(e2, 1000)).toBe(Infinity);
+    const e3: PlanetEph = { ...wasp67b, pl_tranmiderr2: null };
+    expect(propagatedUncertainty(e3, 1000)).toBe(Infinity);
   });
 });
 
@@ -333,8 +361,8 @@ describe("pickMostPreciseEphemeris", () => {
     // A n=0, σ(t_n) = σ_t0 directamente.
     const e1: PlanetEph = { ...wasp67b, pl_refname: "High precision", pl_tranmiderr1: 0.0001, pl_tranmiderr2: -0.0001, pl_orbpererr1: 0 };
     const e2: PlanetEph = { ...wasp67b, pl_refname: "Low precision", pl_tranmiderr1: 0.01, pl_tranmiderr2: -0.01, pl_orbpererr1: 0 };
-    // queryJd = t_0 → n=0 para todas
-    const picked = pickMostPreciseEphemeris([e1, e2], wasp67b.pl_tranmid);
+    // queryJd = t_0 → n=0 para todas (wasp67b.pl_tranmid es no-null en el fixture)
+    const picked = pickMostPreciseEphemeris([e1, e2], wasp67b.pl_tranmid as number);
     expect(picked.pl_refname).toBe("High precision");
   });
 
@@ -497,6 +525,141 @@ describe("matchMostPreciseEphemeris", () => {
     expect(r.transit.midtimeUtc).toMatch(/2026-07-29 20:09/);
     // Y reporta el offset (positivo = antes del inicio, negativo = después)
     expect(r.transit.offsetMin).toBeLessThan(-500);
+  });
+});
+
+/**
+ * REGRESIÓN WASP-67 b con ephemerides REALES de NASA (ago-2026).
+ *
+ * El usuario reportó que la predicción salía a 20:09:36 UTC cuando
+ * NASA TransitView muestra 10:16. Causa raíz: dos de las 8
+ * efemérides de la `ps` table (Stassun 2017 y Mancini 2014) tienen
+ * `pl_tranmid = null` y/o `pl_orbpererr1 = null`. El código antiguo
+ * trataba null como 0 en `propagatedUncertainty`, dando σ = 0 para
+ * esas dos → se elegían como "most precise" con σ=0 y el matching
+ * daba un resultado fuera de la ventana.
+ *
+ * Tras el fix (ago-2026), `propagatedUncertainty` devuelve Infinity
+ * para nulls, y `pickMostPreciseEphemeris` filtra las inválidas. La
+ * "most precise" real es Kokori 2022 con σ ≈ 4.1e-4 d, que predice
+ * el tránsito a 10:16:16 UTC — DENTRO de la ventana del usuario
+ * (08:10:10 → 10:30:15).
+ *
+ * Datos verificados contra la TAP query a la tabla `ps` de NASA
+ * Exoplanet Archive el 2026-08-04.
+ */
+describe("WASP-67 b REAL ephemerides (NASA ps table, ago-2026)", () => {
+  // Ventana observada por el usuario el 2026-07-29
+  const start = utcIsoToJd("2026-07-29T08:10:10.000Z");
+  const end = utcIsoToJd("2026-07-29T10:30:15.000Z");
+
+  // 8 ephemerides tal cual las devuelve NASA. Los null son reales.
+  const ephs: PlanetEph[] = [
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.6144109, pl_orbpererr1: 0.0000027,
+      pl_tranmid: 2455824.374962, pl_tranmiderr1: 0.00022, pl_tranmiderr2: -0.00022,
+      pl_trandur: null, pl_refname: "Bonomo et al. 2017",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.61441644, pl_orbpererr1: 6.9e-7,
+      pl_tranmid: 2456650.35461, pl_tranmiderr1: 0.00013, pl_tranmiderr2: -0.00013,
+      pl_trandur: null, pl_refname: "Kokori et al. 2023",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.6144166, pl_orbpererr1: 4e-7,
+      pl_tranmid: 2456618.0537, pl_tranmiderr1: 0.00008, pl_tranmiderr2: -0.00008,
+      pl_trandur: null, pl_refname: "Kokori et al. 2022",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.61444783554, pl_orbpererr1: 0.00023895898,
+      pl_tranmid: 2460803.328685, pl_tranmiderr1: 0.00078733, pl_tranmiderr2: -0.00078733,
+      pl_trandur: 1.8613266, pl_refname: "ExoFOP",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.61442, pl_orbpererr1: 0.00001,
+      pl_tranmid: null, pl_tranmiderr1: null, pl_tranmiderr2: null, // <-- Stassun 2017: t_0 null
+      pl_trandur: null, pl_refname: "Stassun et al. 2017",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.61, pl_orbpererr1: null,                              // <-- Mancini 2014: t_0 y σ_P null
+      pl_tranmid: null, pl_tranmiderr1: null, pl_tranmiderr2: null,
+      pl_trandur: null, pl_refname: "Mancini et al. 2014",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.6144086, pl_orbpererr1: 0.0000041,
+      pl_tranmid: 2456082.78126, pl_tranmiderr1: 0.00018, pl_tranmiderr2: -0.00018,
+      pl_trandur: null, pl_refname: "Ivshina & Winn 2022",
+    },
+    {
+      pl_name: "WASP-67 b", hostname: "WASP-67",
+      pl_orbper: 4.61442, pl_orbpererr1: 0.00001,
+      pl_tranmid: 2455824.3742, pl_tranmiderr1: 0.0002, pl_tranmiderr2: -0.0002,
+      pl_trandur: 1.896, pl_refname: "Hellier et al. 2012",
+    },
+  ];
+
+  it("REGRESIÓN: con los datos reales, found=true (tránsito DENTRO de la ventana)", () => {
+    // ANTES del fix: el código seleccionaba Mancini 2014 (σ=0 por null
+    // → 0) como "most precise" y devolvía un TransitHit en 20:09:36 UTC,
+    // 579 min después del fin. found=false, mensaje de error en UI.
+    //
+    // DESPUÉS del fix: la picked es Kokori 2022 con σ ≈ 4.1e-4 d, que
+    // predice 10:16:16 UTC — DENTRO de la ventana. found=true.
+    const r = matchMostPreciseEphemeris(ephs, start, end);
+    expect(r.found).toBe(true);
+    expect(r.transit.offsetMin).toBe(0);
+    // La predicción está cerca de 10:16:xx (Kokori 2022 da 10:16:16).
+    expect(r.transit.midtimeUtc).toMatch(/2026-07-29 10:1[56]/);
+  });
+
+  it("REGRESIÓN: la picked NO es Mancini 2014 (debe ser una con t_0 y σ_P válidos)", () => {
+    const r = matchMostPreciseEphemeris(ephs, start, end);
+    expect(r.picked.pl_refname).not.toBe("Mancini et al. 2014");
+    expect(r.picked.pl_refname).not.toBe("Stassun et al. 2017");
+  });
+
+  it("REGRESIÓN: la picked es Kokori 2022 (la de menor σ(t_n) en queryJd)", () => {
+    // La "most precise" por σ(t_n) propagada al centro de la ventana
+    // (~2026-07-29 09:20 UTC) es Kokori 2022: σ_t0=8e-5 d, σ_P=4e-7 d,
+    // n=1004 → σ(t_n) ≈ √(6.4e-9 + (1004·4e-7)²) = 4.1e-4 d. Las
+    // demás son σ_P mayores o σ_t0 mayores.
+    const r = matchMostPreciseEphemeris(ephs, start, end);
+    expect(r.picked.pl_refname).toBe("Kokori et al. 2022");
+  });
+
+  it("Stassun 2017 (t_0 null) no afecta al matching", () => {
+    // Aunque tuviera σ_P válida, sin t_0 no puede predecir.
+    // `transitsInWindow` debe devolver [] para ella.
+    const stassun = ephs.find((e) => e.pl_refname === "Stassun et al. 2017")!;
+    expect(transitsInWindow(stassun, start, end)).toEqual([]);
+    // `findNearest` también debe devolver null.
+    expect(findNearest(stassun, start, end)).toBeNull();
+  });
+
+  it("Mancini 2014 (t_0 y σ_P null) no afecta al matching", () => {
+    const mancini = ephs.find((e) => e.pl_refname === "Mancini et al. 2014")!;
+    expect(transitsInWindow(mancini, start, end)).toEqual([]);
+    expect(findNearest(mancini, start, end)).toBeNull();
+  });
+
+  it("las 5 efemérides válidas predicen todas el tránsito en 10:03–10:22 (en ventana)", () => {
+    // Verificación cruzada: usando `matchAll` (que no pre-selecciona),
+    // todas las ephs válidas deben predecir el tránsito dentro de la
+    // ventana. Esto demuestra que NASA está en lo cierto: HAY un
+    // tránsito en la ventana del usuario.
+    const r = matchAllEphemerides(ephs, start, end);
+    expect(r.transits.length).toBeGreaterThanOrEqual(5);
+    for (const t of r.transits) {
+      expect(t.offsetMin).toBe(0); // todas dentro
+      expect(t.midtimeUtc).toMatch(/2026-07-29 10:0[3-9]|2026-07-29 10:1[0-9]|2026-07-29 10:2[0-2]/);
+    }
   });
 });
 
