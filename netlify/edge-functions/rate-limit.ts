@@ -33,10 +33,14 @@
 //   RATE_LIMIT_WINDOW_SEC           (default 60)
 
 import type { Context } from "https://edge.netlify.com";
-// Patrón recomendado por Netlify para usar npm packages en edge
-// functions: `npm:` sin versión (package.json fija la versión) y el
-// paquete debe estar en dependencies (no solo transitivo).
-import { getStore } from "npm:@netlify/blobs";
+// Importamos @netlify/blobs desde esm.sh con versión pinneada
+// (10.7.11 = la misma que package.json). El prefijo `npm:` es
+// experimental en Netlify Edge Functions y el bundler de esbuild
+// no lo resuelve correctamente (genera un stub "bundled-npm:..."
+// que falla al cargar el módulo). esm.sh es el camino soportado
+// y estable, y la versión pinneada garantiza que la build no
+// rompa si subimos la dep en el futuro.
+import { getStore } from "https://esm.sh/@netlify/blobs@10.7.11";
 
 // Importamos el core desde el repo. Netlify bundle (esbuild) resuelve
 // la ruta relativa en el deploy. NO usamos el alias `@/` aquí porque

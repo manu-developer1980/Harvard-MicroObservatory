@@ -31,7 +31,10 @@ declare module "https://edge.netlify.com" {
 }
 
 // Tipos del cliente Blobs (subset mínimo que usamos).
-declare module "npm:@netlify/blobs" {
+// Importamos desde esm.sh con versión pinneada; el module specifier
+// debe coincidir EXACTAMENTE con el usado en `rate-limit.ts` para
+// que el declare module aplique.
+declare module "https://esm.sh/@netlify/blobs@10.7.11" {
   export interface SetOptions {
     ttl?: number;
   }
