@@ -47,25 +47,18 @@
 import type { APIRoute } from "astro";
 import { t, getReqLang, type Lang } from "@/lib/i18n";
 import { parseDt } from "@/lib/filters";
-import { utcIsoToJd, jdToUtcIso, isoToMoFormat } from "@/lib/jd";
+import { utcIsoToJd } from "@/lib/jd";
+import {
+  type PlanetEph,
+  type TransitHit,
+  matchAllEphemerides,
+} from "@/lib/transit-match";
 
 export const prerender = false;
 
 const TAP_URL =
   "https://exoplanetarchive.ipac.caltech.edu/TAP/sync";
 const TIMEOUT_MS = 12_000;
-
-type PlanetEph = {
-  pl_name: string;
-  hostname: string;
-  pl_orbper: number;        // días
-  pl_orbpererr1: number;    // incertidumbre del periodo (días)
-  pl_tranmid: number;       // BJD del tránsito de referencia
-  pl_tranmiderr1: number;   // incertidumbre +1σ (días)
-  pl_tranmiderr2: number;   // incertidumbre -1σ (días)
-  pl_trandur?: number;      // horas (puede ser null/undefined)
-  pl_refname?: string;      // referencia bibliográfica (HTML)
-};
 
 /**
  * Incertidumbre propagada de la predicción a una fecha futura.
@@ -85,58 +78,9 @@ type PlanetEph = {
  *   - Ivshina 2022 (σ_t0=0.00025 d, σ_P=0.00000034 d)  -> σ(t_n) ≈ 51 min
  * NASA marca Ivshina como ismostprecise=1. Si solo ordenamos por
  * σ_t0, habríamos cogido Kokori (incorrecto para fechas lejanas).
+ *
+ * La implementación vive en `@/lib/transit-match` (testeable aislada).
  */
-function propagatedUncertainty(
-  eph: PlanetEph,
-  n: number,
-): number {
-  const sigmaT0 = Math.max(
-    Math.abs(eph.pl_tranmiderr1 || 0),
-    Math.abs(eph.pl_tranmiderr2 || 0),
-  );
-  const sigmaP = Math.abs(eph.pl_orbpererr1 || 0);
-  return Math.sqrt(sigmaT0 * sigmaT0 + (n * sigmaP) * (n * sigmaP));
-}
-
-/**
- * Limpia el HTML que viene en `pl_refname` (NASA lo entrega como
- * `<a href="...">Ivshina &amp; Winn 2022</a>`) y devuelve solo el texto
- * legible. Si la entrada no parece HTML, la devuelve tal cual.
- */
-function stripHtml(s: string | undefined | null): string | undefined {
-  if (!s) return undefined;
-  const trimmed = s.trim();
-  if (!trimmed) return undefined;
-  // Quitamos tags y decodificamos entidades HTML básicas
-  const noTags = trimmed.replace(/<[^>]*>/g, "");
-  const decoded = noTags
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-  return decoded.trim() || undefined;
-}
-
-type TransitHit = {
-  pl_name: string;
-  hostname: string;
-  midtimeJd: number;
-  midtimeUtc: string;     // formato MO "2026-07-24 02:09:00"
-  midtimeIso: string;     // "2026-07-24T02:09:00.000Z"
-  period: number;         // días
-  duration?: number;      // horas
-  uncertaintyJd: number;  // 1σ en días
-  // Referencia bibliográfica de la efeméride usada para predecir este
-  // tránsito (ej. "Ivshina & Winn 2022"). Permite al usuario verificar
-  // contra el paper original si la predicción le sorprende.
-  reference?: string;
-  // 0 si el midpoint está dentro de la ventana. Si está fuera, minutos
-  // de diferencia con el borde más cercano de la ventana (positivo = después
-  // del fin, negativo = antes del inicio).
-  offsetMin: number;
-};
 
 type TransitCheckResponse = {
   ok: boolean;
@@ -275,121 +219,10 @@ async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
 }
 
 /**
- * Genera los tránsitos del planeta en [startJd, endJd] usando
- * t_n = t_0 + n*P para n entero.
- *
- * Para no perdernos ningún tránsito en una ventana de varios días,
- * iteramos un margen extra de ±5 períodos alrededor del rango.
+ * `transitsInWindow` y `findNearest` viven ahora en `@/lib/transit-match`
+ * para poder testearlas aisladas. Ver `transit-match.test.ts` para los
+ * tests de regresión del bug de margen (WASP-67 b 2026-07-29).
  */
-function transitsInWindow(
-  eph: PlanetEph,
-  startJd: number,
-  endJd: number,
-): TransitHit[] {
-  if (eph.pl_orbper <= 0) return [];
-  const hits: TransitHit[] = [];
-
-  // Centro aproximado: transit más cercano a startJd
-  const nApprox = Math.round((startJd - eph.pl_tranmid) / eph.pl_orbper);
-  // Rango de n a explorar: ±5 períodos extra + lo que cubre la ventana
-  const periodsInWindow = Math.ceil((endJd - startJd) / eph.pl_orbper) + 2;
-  const nStart = nApprox - 5;
-  const nEnd = nApprox + periodsInWindow + 5;
-
-  const uncertaintyJd = Math.max(
-    Math.abs(eph.pl_tranmiderr1 || 0),
-    Math.abs(eph.pl_tranmiderr2 || 0),
-  );
-
-  for (let n = nStart; n <= nEnd; n++) {
-    const midJd = eph.pl_tranmid + n * eph.pl_orbper;
-    if (midJd < startJd - 0.5 || midJd > endJd + 0.5) continue;
-    const midIso = jdToUtcIso(midJd);
-    let offsetMin = 0;
-    if (midJd < startJd) {
-      offsetMin = Math.round((startJd - midJd) * 24 * 60);
-      // offsetMin positivo = tránsito ANTES del inicio (usuario llegó tarde)
-    } else if (midJd > endJd) {
-      offsetMin = -Math.round((midJd - endJd) * 24 * 60);
-      // offsetMin negativo = tránsito DESPUÉS del fin (usuario terminó antes)
-    }
-    hits.push({
-      pl_name: eph.pl_name,
-      hostname: eph.hostname,
-      midtimeJd: midJd,
-      midtimeUtc: isoToMoFormat(midIso),
-      midtimeIso: midIso,
-      period: eph.pl_orbper,
-      // Normalizamos null -> undefined: la tabla `ps` puede tener
-      // pl_trandur NULL (tránsitos sin duración medida) y queremos
-      // que el cliente pueda hacer `if (t.duration != null)` sin
-      // romperse con un JSON `null` literal.
-      duration: eph.pl_trandur ?? undefined,
-      uncertaintyJd,
-      reference: stripHtml(eph.pl_refname),
-      offsetMin,
-    });
-  }
-  return hits;
-}
-
-/**
- * Encuentra el tránsito más cercano a la ventana (incluso si está fuera).
- * Busca un poco más allá de la ventana para detectar "near misses".
- */
-function findNearest(
-  eph: PlanetEph,
-  startJd: number,
-  endJd: number,
-): TransitHit | null {
-  if (eph.pl_orbper <= 0) return null;
-  // Buscamos en una ventana extendida: ±10 períodos alrededor
-  const nApprox = Math.round((startJd - eph.pl_tranmid) / eph.pl_orbper);
-  const periodsInWindow = Math.ceil((endJd - startJd) / eph.pl_orbper) + 2;
-  const nStart = nApprox - 10;
-  const nEnd = nApprox + periodsInWindow + 10;
-
-  const uncertaintyJd = Math.max(
-    Math.abs(eph.pl_tranmiderr1 || 0),
-    Math.abs(eph.pl_tranmiderr2 || 0),
-  );
-
-  let best: TransitHit | null = null;
-  let bestDist = Infinity;
-
-  for (let n = nStart; n <= nEnd; n++) {
-    const midJd = eph.pl_tranmid + n * eph.pl_orbper;
-    // Distancia al borde más cercano de la ventana
-    let dist: number;
-    if (midJd < startJd) dist = startJd - midJd;
-    else if (midJd > endJd) dist = midJd - endJd;
-    else dist = 0;
-    if (dist < bestDist) {
-      bestDist = dist;
-      const midIso = jdToUtcIso(midJd);
-      let offsetMin = 0;
-      if (midJd < startJd) {
-        offsetMin = Math.round((startJd - midJd) * 24 * 60);
-      } else if (midJd > endJd) {
-        offsetMin = -Math.round((midJd - endJd) * 24 * 60);
-      }
-      best = {
-        pl_name: eph.pl_name,
-        hostname: eph.hostname,
-        midtimeJd: midJd,
-        midtimeUtc: isoToMoFormat(midIso),
-        midtimeIso: midIso,
-        period: eph.pl_orbper,
-        // Ver `transitsInWindow` por qué normalizamos null -> undefined.
-        duration: eph.pl_trandur ?? undefined,
-        uncertaintyJd,
-        reference: stripHtml(eph.pl_refname),
-        offsetMin,
-      };
-    }
-  }
-  return best;
-}
 
 export const POST: APIRoute = async ({ request }) => {
   const lang: Lang = getReqLang(request);
@@ -461,72 +294,31 @@ export const POST: APIRoute = async ({ request }) => {
     return jsonResp(response);
   }
 
-  // Deduplicamos por pl_name eligiendo, para cada planeta, la efeméride
-  // con menor incertidumbre propagada a la fecha objetivo. Esto replica
-  // el criterio de NASA para `ismostprecise=1`.
-  //
-  // Usamos como fecha objetivo el centro de la ventana del usuario: es
-  // el momento en que típicamente quiere saber si hay un tránsito
-  // observable. Para n pequeño (sesiones casi contemporáneas a t_0) el
-  // término σ_t0 domina, igual que en `ORDER BY pl_tranmiderr1`. Para
-  // n grande (futuro lejano) el término n·σ_P domina y se imponen las
-  // efemérides con periodo más preciso.
-  const centerJd = (startJd + endJd) / 2;
-  const bestByPlanet = new Map<string, PlanetEph>();
-  for (const eph of ephs) {
-    const n = Math.round((centerJd - eph.pl_tranmid) / eph.pl_orbper);
-    const sigma = propagatedUncertainty(eph, n);
-    const existing = bestByPlanet.get(eph.pl_name);
-    if (!existing) {
-      bestByPlanet.set(eph.pl_name, eph);
-      continue;
-    }
-    const nExisting = Math.round(
-      (centerJd - existing.pl_tranmid) / existing.pl_orbper,
-    );
-    if (sigma < propagatedUncertainty(existing, nExisting)) {
-      bestByPlanet.set(eph.pl_name, eph);
-    }
-  }
-  const bestEphs = Array.from(bestByPlanet.values());
+  // Matching contra TODAS las efemérides. Ver `matchAllEphemerides` en
+  // transit-match.ts para la justificación de no pre-seleccionar una
+  // "mejor" (bug histórico en WASP-67 b 2026-07-29: la selección por
+  // propagatedUncertainty apuntaba a Mancini 2014 a 20:09:36 UTC, pero
+  // las 6 efemérides de NASA TransitView predecían 10:03–10:22 UTC).
+  const matched = matchAllEphemerides(ephs, startJd, endJd);
+  const allInWindow = matched.transits;
+  const bestNearest = matched.nearest;
 
-  // Agregamos tránsitos de todos los planetas que matchearon
-  // (multi-planet system, binary system con varias componentes).
-  const allInWindow: TransitHit[] = [];
-  let bestNearest: TransitHit | null = null;
-  for (const eph of bestEphs) {
-    allInWindow.push(...transitsInWindow(eph, startJd, endJd));
-    const n = findNearest(eph, startJd, endJd);
-    if (n) {
-      if (!bestNearest || Math.abs(n.offsetMin) < Math.abs(bestNearest.offsetMin)) {
-        bestNearest = n;
-      }
-    }
-  }
-  allInWindow.sort((a, b) => a.midtimeJd - b.midtimeJd);
-
-  // matchedName: si hay un único planeta, su nombre. Si hay varios,
-  // concatenamos.
-  const matchedName = bestEphs.length === 1 ? bestEphs[0].pl_name : bestEphs.map((e) => e.pl_name).join(", ");
-  const matchedHost = bestEphs.length === 1 ? bestEphs[0].hostname : `${bestEphs[0].hostname} (+${bestEphs.length - 1})`;
-
-  // Referencias de las efemérides elegidas (limpias de HTML). Deduplicadas
-  // para que la UI muestre "Ivshina & Winn 2022" una sola vez aunque haya
-  // varios planetas matcheados con el mismo paper.
-  const references = Array.from(
-    new Set(
-      bestEphs
-        .map((e) => stripHtml(e.pl_refname))
-        .filter((r): r is string => !!r),
-    ),
-  );
+  const matchedName =
+    matched.matchedPlanets.length === 1
+      ? matched.matchedPlanets[0]
+      : matched.matchedPlanets.join(", ");
+  const matchedHost =
+    matched.matchedPlanets.length === 1
+      ? ephs.find((e) => e.pl_name === matched.matchedPlanets[0])?.hostname ??
+        ""
+      : `${matched.matchedPlanets[0]} (+${matched.matchedPlanets.length - 1})`;
 
   const response: TransitCheckResponse = {
     ok: true,
     target,
     matchedName,
     matchedHost,
-    references: references.length > 0 ? references : undefined,
+    references: matched.references.length > 0 ? matched.references : undefined,
     startJd,
     endJd,
     found: allInWindow.length > 0,
