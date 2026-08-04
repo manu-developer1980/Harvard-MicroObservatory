@@ -33,7 +33,10 @@
 //   RATE_LIMIT_WINDOW_SEC           (default 60)
 
 import type { Context } from "https://edge.netlify.com";
-import { getStore } from "npm:@netlify/blobs@^8";
+// Patrón recomendado por Netlify para usar npm packages en edge
+// functions: `npm:` sin versión (package.json fija la versión) y el
+// paquete debe estar en dependencies (no solo transitivo).
+import { getStore } from "npm:@netlify/blobs";
 
 // Importamos el core desde el repo. Netlify bundle (esbuild) resuelve
 // la ruta relativa en el deploy. NO usamos el alias `@/` aquí porque

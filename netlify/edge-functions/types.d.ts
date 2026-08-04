@@ -31,7 +31,7 @@ declare module "https://edge.netlify.com" {
 }
 
 // Tipos del cliente Blobs (subset mínimo que usamos).
-declare module "npm:@netlify/blobs@^8" {
+declare module "npm:@netlify/blobs" {
   export interface SetOptions {
     ttl?: number;
   }
