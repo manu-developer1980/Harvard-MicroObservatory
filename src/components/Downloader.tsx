@@ -310,13 +310,23 @@ type DownloaderProps = {
 };
 
 export default function Downloader({ initialLang }: DownloaderProps = {}) {
-  // Prioridad: localStorage > initialLang (SSR) > navigator.language
-  const [lang, setLangState] = useState<Lang>(() => {
-    if (typeof window === "undefined") {
-      return initialLang ?? "en";
+  // IMPORTANTE: el initial state debe coincidir EXACTAMENTE con el SSR
+  // para que la hidratación de React no falle (#425/#418/#423). El SSR
+  // siempre usa `initialLang` (derivado de Accept-Language en index.astro),
+  // así que el cliente hace lo mismo en su primer render. La preferencia
+  // de localStorage se aplica DESPUÉS, en un useEffect, para evitar
+  // mismatch cuando el usuario cambió el idioma en una visita previa.
+  const [lang, setLangState] = useState<Lang>(initialLang ?? "en");
+  // Tras montar, sincronizamos con la preferencia persistida. Si difiere
+  // del valor SSR, forzamos un re-render con el idioma guardado. Esto
+  // se ejecuta UNA sola vez (deps []) y solo en cliente.
+  useEffect(() => {
+    const stored = getStoredLang();
+    if (stored && stored !== lang) {
+      setLangState(stored);
     }
-    return getStoredLang() ?? initialLang ?? "en";
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Cuando cambia lang, persistirlo y reflejarlo en <html lang="...">.
   // También emitimos un CustomEvent `mo:lang` para que el Footer (que

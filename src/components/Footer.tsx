@@ -24,12 +24,22 @@ type FooterProps = {
 };
 
 export default function Footer({ initialLang }: FooterProps = {}) {
-  const [lang, setLangState] = useState<Lang>(() => {
-    if (typeof window === "undefined") {
-      return initialLang ?? "en";
+  // IMPORTANTE: el initial state debe coincidir EXACTAMENTE con el SSR
+  // para evitar React hydration error #425/#418/#423. El SSR siempre usa
+  // `initialLang` (derivado de Accept-Language en index.astro); aplicamos
+  // la preferencia de localStorage en un useEffect posterior al mount.
+  const [lang, setLangState] = useState<Lang>(initialLang ?? "en");
+
+  // Tras montar, sincronizamos con la preferencia persistida. Si difiere
+  // del valor SSR, forzamos un re-render con el idioma guardado. Se
+  // ejecuta UNA sola vez (deps []) y solo en cliente.
+  useEffect(() => {
+    const stored = getStoredLang();
+    if (stored && stored !== lang) {
+      setLangState(stored);
     }
-    return getStoredLang() ?? initialLang ?? "en";
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sincroniza el <html lang="..."> y persiste en localStorage para
   // que la siguiente carga herede la elección. También escucha el
