@@ -25,6 +25,7 @@ import {
   matchAllEphemerides,
   matchMostPreciseEphemeris,
   pickMostPreciseEphemeris,
+  normalizeTargetForNasa,
   TRANSIT_MATCH_TOLERANCE_DAYS,
   type PlanetEph,
 } from "@/lib/transit-match";
@@ -496,5 +497,67 @@ describe("matchMostPreciseEphemeris", () => {
     expect(r.transit.midtimeUtc).toMatch(/2026-07-29 20:09/);
     // Y reporta el offset (positivo = antes del inicio, negativo = después)
     expect(r.transit.offsetMin).toBeLessThan(-500);
+  });
+});
+
+describe("normalizeTargetForNasa: casos reales reportados", () => {
+  it("KELT-23A (sin espacio) debe producir 'KELT-23 A' (con espacio, sistema binario en NASA)", () => {
+    const variants = normalizeTargetForNasa("KELT-23A");
+    expect(variants).toContain("KELT-23 A");
+  });
+
+  it("TOI1516 (sin guion) debe producir 'TOI-1516'", () => {
+    const variants = normalizeTargetForNasa("TOI1516");
+    expect(variants).toContain("TOI-1516");
+  });
+
+  it("TOI 4145 (con espacio) debe producir 'TOI-4145'", () => {
+    const variants = normalizeTargetForNasa("TOI 4145");
+    expect(variants).toContain("TOI-4145");
+  });
+
+  it("regresión: WASP-135 (input en formato NASA) NO debe añadir transformaciones", () => {
+    const variants = normalizeTargetForNasa("WASP-135");
+    // La primera variante debe ser el input literal
+    expect(variants[0]).toBe("WASP-135");
+    // No debe duplicar ni inventar transformaciones que cambien el input
+    expect(new Set(variants).size).toBe(variants.length);
+  });
+
+  it("regresión: WASP-135 b (con letra de planeta) se mantiene tal cual", () => {
+    const variants = normalizeTargetForNasa("WASP-135 b");
+    expect(variants).toContain("WASP-135 b");
+  });
+
+  it("WASP-135A (sin espacio) produce 'WASP-135 A'", () => {
+    const variants = normalizeTargetForNasa("WASP-135A");
+    expect(variants).toContain("WASP-135 A");
+  });
+
+  it("input vacío o whitespace devuelve []", () => {
+    expect(normalizeTargetForNasa("")).toEqual([]);
+    expect(normalizeTargetForNasa("   ")).toEqual([]);
+  });
+
+  it("input con espacios al borde se trimea", () => {
+    const variants = normalizeTargetForNasa("  KELT-23A  ");
+    expect(variants[0]).toBe("KELT-23A");
+    expect(variants).toContain("KELT-23 A");
+  });
+
+  it("idempotencia: aplicar el normalizador a un nombre ya en formato NASA produce un set estable", () => {
+    const once = normalizeTargetForNasa("WASP-135");
+    const twice = normalizeTargetForNasa(once[0]);
+    expect(twice).toEqual(once);
+  });
+
+  it("no produce duplicados", () => {
+    const variants = normalizeTargetForNasa("KELT-23A");
+    expect(new Set(variants).size).toBe(variants.length);
+  });
+
+  it("incluye el input literal como primera variante (cero overhead si ya matchea)", () => {
+    const variants = normalizeTargetForNasa("KELT-23A");
+    expect(variants[0]).toBe("KELT-23A");
   });
 });

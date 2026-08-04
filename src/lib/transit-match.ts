@@ -437,3 +437,70 @@ export function matchMostPreciseEphemeris(
   }
   return { picked, transit: nearest, found: false };
 }
+
+// ---------------------------------------------------------------------------
+// Normalización de nombres de planeta para matching contra NASA ps table
+// ---------------------------------------------------------------------------
+
+/**
+ * Variantes del nombre del target que se prueban contra la tabla `ps`
+ * de NASA Exoplanet Archive. La idea es cubrir las diferencias de
+ * formato entre cómo escribe el usuario (o el desplegable de MO) y el
+ * `hostname` canónico de NASA.
+ *
+ * Casos reales (verificados contra NASA, ago-2026):
+ *   - "KELT-23A"  (MO)  → NASA "KELT-23 A"  (con espacio, sistema binario)
+ *   - "TOI1516"   (MO)  → NASA "TOI-1516"   (con guion entre prefijo y número)
+ *   - "TOI 4145"  (MO)  → NASA "TOI-4145"   (guion en vez de espacio)
+ *   - "WASP-135"  (MO)  → NASA "WASP-135"   (idéntico, no necesita nada)
+ *   - "WASP-12 b" (MO)  → NASA "WASP-12 b"  (idéntico)
+ *
+ * Estrategia: el endpoint intenta primero el input literal, luego cada
+ * variante. Devolvemos un array en orden de prioridad (input primero,
+ * luego variantes). La consulta para en cuanto una variante devuelve
+ * ≥1 fila. Si ninguna matchea, se devuelve [] y el endpoint marca
+ * "target not found" como antes.
+ *
+ * Las transformaciones son:
+ *   1. WS→hyphen           "TOI 4145"      → "TOI-4145"
+ *   2. prefix→hyphen        "TOI1516"       → "TOI-1516"
+ *   3. number→space-letter  "KELT-23A"      → "KELT-23 A"
+ *   4. Combinación 1+2+3    "TOI 4145A"     → "TOI-4145 A"
+ *
+ * Caso ya correcto (regresión): "WASP-135 b" sigue matcheando a la
+ * primera porque el input literal está en la lista.
+ */
+export function normalizeTargetForNasa(input: string): string[] {
+  const candidates = new Set<string>();
+  const trim = input.trim();
+  if (!trim) return [];
+
+  candidates.add(trim);
+
+  // (1) Whitespace → hyphen. "TOI 4145" → "TOI-4145", "LHS 1140" → "LHS-1140".
+  candidates.add(trim.replace(/\s+/g, "-"));
+
+  // (2) Insertar guion entre el prefijo de letras y el primer dígito,
+  //     tolerando separadores existentes (espacio, guion o nada).
+  //     "TOI1516" → "TOI-1516", "TOI 1516" → "TOI-1516",
+  //     "TOI-1516" → "TOI-1516" (idempotente).
+  candidates.add(
+    trim.replace(/^([A-Za-z]+)[^\dA-Za-z]*(\d)/, "$1-$2"),
+  );
+
+  // (3) Insertar espacio entre el último dígito y la letra final
+  //     (sufijo de componente binario en NASA: "KELT-23 A").
+  //     "KELT-23A" → "KELT-23 A", "KELT-23 A" → "KELT-23 A" (idempotente).
+  candidates.add(trim.replace(/(\d)([A-Z][a-z]?)$/, "$1 $2"));
+
+  // (4) Las tres transformaciones combinadas (cubre entradas con
+  //     múltiples desviaciones: "TOI 4145A" → "TOI-4145 A").
+  candidates.add(
+    trim
+      .replace(/\s+/g, "-")
+      .replace(/^([A-Za-z]+)[^\dA-Za-z]*(\d)/, "$1-$2")
+      .replace(/(\d)([A-Z][a-z]?)$/, "$1 $2"),
+  );
+
+  return Array.from(candidates);
+}

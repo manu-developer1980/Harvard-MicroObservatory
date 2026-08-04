@@ -52,6 +52,7 @@ import {
   type PlanetEph,
   type TransitHit,
   matchMostPreciseEphemeris,
+  normalizeTargetForNasa,
 } from "@/lib/transit-match";
 import { TransitCheckRequestSchema, parseBody } from "@/lib/schemas";
 import { sqlEscapeLike } from "@/lib/sql-escape";
@@ -198,6 +199,31 @@ async function tapQuery(sql: string): Promise<PlanetEph[] | null> {
  * puede ser mucho mayor).
  */
 async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
+  // El input del usuario (o el desplegable de MO) puede no coincidir
+  // exactamente con el formato canónico de NASA. Casos reales:
+  //   - "KELT-23A" (MO)   → NASA "KELT-23 A"   (espacio en sistema binario)
+  //   - "TOI1516"  (MO)   → NASA "TOI-1516"    (guion prefijo-número)
+  //   - "TOI 4145" (MO)   → NASA "TOI-4145"    (guion en vez de espacio)
+  // `normalizeTargetForNasa` produce el input literal + variantes
+  // canónicas. Probamos cada una hasta que alguna devuelva filas. La
+  // primera (literal) es la más rápida cuando el usuario ya escribe en
+  // formato NASA.
+  const candidates = normalizeTargetForNasa(target);
+  for (const candidate of candidates) {
+    const ephs = await findPlanetEphemeridesExact(candidate);
+    if (ephs.length > 0) return ephs;
+  }
+  return [];
+}
+
+/**
+ * Query exacta (sin normalización) para una variante del nombre. Ver
+ * `findPlanetEphemerides` para la versión que prueba múltiples
+ * candidatos. Esta función es `async` por la TAP query a NASA; no
+ * meter lógica de normalización aquí — vive en transit-match.ts
+ * (`normalizeTargetForNasa`) para poder testearla aislada.
+ */
+async function findPlanetEphemeridesExact(target: string): Promise<PlanetEph[]> {
   const safe = sqlEscapeLike(target);
   // Cubrimos: hostname exacto, pl_name LIKE prefijo. El prefijo en pl_name
   // atrapa "WASP-135" -> "WASP-135 b" y "WASP-135 A" -> "WASP-135 A b".
