@@ -113,6 +113,18 @@ export const en = {
   "darkDebug.headers.filters": "Filters",
   "darkDebug.headers.times": "Times (UTC)",
 
+  // Sequence selection table (multi-night downloads)
+  "sequenceTable.colSel": "Sel.",
+  "sequenceTable.colDate": "Date",
+  "sequenceTable.colTransit": "Transit",
+  "sequenceTable.colDarks": "Darks",
+  "sequenceTable.colTotal": "Total",
+  "sequenceTable.selectedCount": "{selected} of {total} sequences selected",
+  "sequenceTable.selectAll": "Select all",
+  "sequenceTable.selectNone": "None",
+  "sequenceTable.toggleAria": "Select sequence {date}",
+  "sequenceTable.transitTickTitle": "Contains the predicted transit",
+
   // Transit cross-check (NASA Exoplanet Archive). Single prediction
   // from the "most precise" ephemeris (réplica del TransitView).
   "transit.title": "Transit prediction (NASA Exoplanet Archive)",

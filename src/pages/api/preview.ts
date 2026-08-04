@@ -35,7 +35,7 @@ import { PreviewRequestSchema, parseBody } from "@/lib/schemas";
 
 export const prerender = false;
 
-type DateGroup = {
+export type DateGroup = {
   date: string;             // "20260725"
   transit: ImageRecord[];   // imágenes que pasan
   darks: ImageRecord[];     // darks de esa fecha

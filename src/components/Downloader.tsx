@@ -5,6 +5,11 @@ import {
   type ImageRecord,
 } from "@/lib/filters";
 import {
+  buildAllFiles,
+  groupContainsTransit,
+  type DateGroupLite,
+} from "@/lib/sequence-table";
+import {
   t as i18n,
   getStoredLang,
   setStoredLang,
@@ -280,24 +285,8 @@ async function downloadFits(file: string): Promise<Blob> {
   return r.blob();
 }
 
-// Construye la lista de archivos a descargar/subir a partir del preview,
-// replicando exactamente la estructura de carpetas que usa el ZIP:
-//   <date>/<fits>           para tránsitos
-//   <date>/darks/<fits>     para darks
-// Compartido por handleDownload y handleDriveUpload para que ambas
-// operaciones vean la misma selección.
-function buildAllFiles(preview: PreviewResponse): DriveFile[] {
-  const all: DriveFile[] = [];
-  for (const g of preview.transitByDate) {
-    for (const r of g.transit) {
-      all.push({ path: `${g.date}/${r.fits}`, file: r.fits });
-    }
-    for (const r of g.darks) {
-      all.push({ path: `${g.date}/darks/${r.fits}`, file: r.fits });
-    }
-  }
-  return all;
-}
+// buildAllFiles y groupContainsTransit están en `@/lib/sequence-table`
+// (testables aisladas, sin React). Las importamos arriba.
 
 type DownloaderProps = {
   /**
@@ -308,6 +297,140 @@ type DownloaderProps = {
    */
   initialLang?: Lang;
 };
+
+// ---------------------------------------------------------------------------
+// Tabla de secuencias con selección + tick verde de tránsito
+// ---------------------------------------------------------------------------
+
+type SequenceTableProps = {
+  preview: PreviewResponse;
+  /** TransitHit predicho por NASA (null si no hay tránsito aún o no se encontró). */
+  transitHit: TransitHit | null;
+  /** Fechas (YYYYMMDD) marcadas por el usuario. */
+  selectedDates: ReadonlySet<string>;
+  onToggleDate: (date: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+  lang: Lang;
+};
+
+/**
+ * Tabla de secuencias detectadas en el preview, con:
+ *   - Columna "Sel." con checkbox por fila (solo si hay >1 secuencia)
+ *   - Tick verde en la fila que contiene el tránsito predicho
+ *   - Barra de selección rápida (todo / ninguno) sobre la tabla
+ *
+ * Si hay UNA sola secuencia, la columna "Sel." y la barra rápida se
+ * omiten (no hay nada que seleccionar). El tick verde sí se muestra
+ * porque sigue siendo útil como indicador visual de "esta fila es
+ * la que tiene el tránsito".
+ */
+function SequenceTable({
+  preview,
+  transitHit,
+  selectedDates,
+  onToggleDate,
+  onSelectAll,
+  onSelectNone,
+  lang,
+}: SequenceTableProps) {
+  const groups = preview.transitByDate;
+  const multiSelect = groups.length > 1;
+
+  return (
+    <>
+      {multiSelect && (
+        <div className="sequence-table-toolbar">
+          <span className="sequence-table-toolbar-label">
+            {i18n("sequenceTable.selectedCount", lang, {
+              selected: selectedDates.size,
+              total: groups.length,
+            })}
+          </span>
+          <div className="sequence-table-toolbar-actions">
+            <button
+              type="button"
+              className="link-button"
+              onClick={onSelectAll}
+              disabled={
+                selectedDates.size === groups.length ||
+                groups.length === 0
+              }
+            >
+              {i18n("sequenceTable.selectAll", lang)}
+            </button>
+            <span className="dot-sep">·</span>
+            <button
+              type="button"
+              className="link-button"
+              onClick={onSelectNone}
+              disabled={selectedDates.size === 0}
+            >
+              {i18n("sequenceTable.selectNone", lang)}
+            </button>
+          </div>
+        </div>
+      )}
+      <table className="sequence-table">
+        <thead>
+          <tr>
+            {multiSelect && <th className="col-sel">{i18n("sequenceTable.colSel", lang)}</th>}
+            <th>{i18n("sequenceTable.colDate", lang)}</th>
+            <th>{i18n("sequenceTable.colTransit", lang)}</th>
+            <th>{i18n("sequenceTable.colDarks", lang)}</th>
+            <th>{i18n("sequenceTable.colTotal", lang)}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => {
+            const containsTransit = groupContainsTransit(g, transitHit);
+            const selected = selectedDates.has(g.date);
+            return (
+              <tr
+                key={g.date}
+                className={
+                  (containsTransit ? "contains-transit" : "") +
+                  (!selected && multiSelect ? " is-deselected" : "")
+                }
+              >
+                {multiSelect && (
+                  <td className="col-sel">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => onToggleDate(g.date)}
+                      aria-label={i18n("sequenceTable.toggleAria", lang, {
+                        date: toDDMMYYYY(g.date),
+                      })}
+                    />
+                  </td>
+                )}
+                <td>
+                  {toDDMMYYYY(g.date)}
+                  {containsTransit && (
+                    <span
+                      className="transit-tick"
+                      title={i18n("sequenceTable.transitTickTitle", lang)}
+                      aria-label={i18n(
+                        "sequenceTable.transitTickTitle",
+                        lang,
+                      )}
+                    >
+                      {" "}✓
+                    </span>
+                  )}
+                </td>
+                <td>{g.transit.length}</td>
+                <td>{g.darks.length}</td>
+                <td>{g.transit.length + g.darks.length}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
 
 export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // IMPORTANTE: el initial state debe coincidir EXACTAMENTE con el SSR
@@ -370,6 +493,31 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // Selección de secuencias para descargar/subir. Solo se muestra la
+  // UI (checkbox por fila) cuando hay más de UNA secuencia. Por
+  // defecto, todas las secuencias están seleccionadas (Set con todas
+  // las fechas). Se re-inicializa automáticamente cuando llega un
+  // preview nuevo (ver useEffect más abajo) para evitar arrastrar
+  // selecciones obsoletas entre requests.
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // Cuando llega un preview nuevo, marcamos todas sus fechas como
+  // seleccionadas. Esto cubre dos casos:
+  //   (a) primer preview: Set estaba vacío
+  //   (b) preview regenerado: el usuario podría tener fechas que ya
+  //       no existen; las limpiamos y volvemos a seleccionar las
+  //       nuevas. Sin esto, una fecha descartada pero previamente
+  //       seleccionada quedaría "huérfana" en el Set.
+  useEffect(() => {
+    if (preview) {
+      setSelectedDates(new Set(preview.transitByDate.map((g) => g.date)));
+    } else {
+      setSelectedDates(new Set());
+    }
+  }, [preview]);
 
   const [progress, setProgress] = useState<DownloadProgress>({
     total: 0,
@@ -626,7 +774,10 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // Paso 3: descargar ZIP
   const handleDownload = async () => {
     if (!preview) return;
-    const allFiles = buildAllFiles(preview);
+    // Usamos la selección del usuario (Set de fechas marcadas). Si
+    // hay una sola secuencia, el Set contiene su única fecha y
+    // buildAllFiles devuelve lo mismo que antes — sin overhead.
+    const allFiles = buildAllFiles(preview.transitByDate, selectedDates);
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -693,7 +844,24 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     preview?.transitByDate.reduce((acc, g) => acc + g.transit.length, 0) ?? 0;
   const totalDarks =
     preview?.transitByDate.reduce((acc, g) => acc + g.darks.length, 0) ?? 0;
+  // FITS totales (todas las secuencias, independiente de la selección).
+  // Se usa para el resumen "Tránsito que pasa filtros" del summary ul.
   const totalFiles = totalTransit + totalDarks;
+
+  // FITS de las secuencias SELECCIONADAS. Es lo que realmente se
+  // descarga/sube cuando el usuario pulsa el botón. Cuando hay una
+  // sola secuencia, selectedDates contiene su única fecha y este
+  // conteo es igual a totalFiles. Cuando hay varias, refleja la
+  // suma de las filas marcadas.
+  const selectedFilesCount = preview
+    ? preview.transitByDate.reduce(
+        (acc, g) =>
+          selectedDates.has(g.date)
+            ? acc + g.transit.length + g.darks.length
+            : acc,
+        0,
+      )
+    : 0;
 
   // Abre el popup de Google para autorizar `drive.file` scope. Tras
   // éxito, persiste el token (con su expiry) en localStorage y refleja
@@ -747,7 +915,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
         return;
       }
     }
-    const allFiles = buildAllFiles(preview);
+    const allFiles = buildAllFiles(preview.transitByDate, selectedDates);
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -1185,80 +1353,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
               ? i18n("action.loading", lang)
               : i18n("action.preview", lang)}
           </button>
-          {preview && (
-            <button
-              type="button"
-              onClick={handleDownload}
-              disabled={
-                progress.phase === "downloading" ||
-                progress.phase === "zipping" ||
-                progress.phase === "uploading" ||
-                progress.phase === "preparing" ||
-                totalFiles === 0
-              }
-              className="primary"
-            >
-              {i18n("action.download", lang, { count: totalFiles })}
-            </button>
-          )}
         </div>
-
-        {preview && (
-          <div className="drive-zone">
-            {driveToken ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleDriveUpload}
-                  disabled={
-                    driveBusy ||
-                    progress.phase === "uploading" ||
-                    progress.phase === "preparing" ||
-                    progress.phase === "downloading" ||
-                    progress.phase === "zipping" ||
-                    totalFiles === 0
-                  }
-                  className="primary"
-                  title={i18n("action.drive.signInTitle", lang)}
-                >
-                  ↑ {i18n("action.drive.upload", lang)}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDriveSignOut}
-                  disabled={driveBusy}
-                  className="link-button"
-                  title={i18n("action.drive.signedInAs", lang)}
-                >
-                  {i18n("action.drive.signOut", lang)}
-                </button>
-                {driveDoneUrl && (
-                  <a
-                    href={driveDoneUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="drive-link"
-                  >
-                    {i18n("action.drive.openFolder", lang)}
-                  </a>
-                )}
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleDriveSignIn}
-                disabled={driveBusy}
-                className="drive-signin"
-                title={i18n("action.drive.signInTitle", lang)}
-              >
-                <GoogleDriveIcon />
-                {driveBusy
-                  ? i18n("action.loading", lang)
-                  : i18n("action.drive.signIn", lang)}
-              </button>
-            )}
-          </div>
-        )}
       </fieldset>
 
       {errMsg && <div className="error">{errMsg}</div>}
@@ -1389,26 +1484,100 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
             <p className="warn">{i18n("summary.empty", lang)}</p>
           ) : (
             <>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Tránsito</th>
-                    <th>Darks</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.transitByDate.map((g) => (
-                    <tr key={g.date}>
-                      <td>{toDDMMYYYY(g.date)}</td>
-                      <td>{g.transit.length}</td>
-                      <td>{g.darks.length}</td>
-                      <td>{g.transit.length + g.darks.length}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <SequenceTable
+                preview={preview}
+                transitHit={
+                  transitCheck && "data" in transitCheck
+                    ? transitCheck.data.transit
+                    : null
+                }
+                selectedDates={selectedDates}
+                onToggleDate={(d: string) => {
+                  setSelectedDates((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(d)) next.delete(d);
+                    else next.add(d);
+                    return next;
+                  });
+                }}
+                onSelectAll={() => {
+                  setSelectedDates(
+                    new Set(preview.transitByDate.map((g) => g.date)),
+                  );
+                }}
+                onSelectNone={() => setSelectedDates(new Set())}
+                lang={lang}
+              />
+              <div className="download-actions">
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={
+                    progress.phase === "downloading" ||
+                    progress.phase === "zipping" ||
+                    progress.phase === "uploading" ||
+                    progress.phase === "preparing" ||
+                    selectedFilesCount === 0
+                  }
+                  className="primary"
+                >
+                  {i18n("action.download", lang, {
+                    count: selectedFilesCount,
+                  })}
+                </button>
+                {driveToken ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDriveUpload}
+                      disabled={
+                        driveBusy ||
+                        progress.phase === "uploading" ||
+                        progress.phase === "preparing" ||
+                        progress.phase === "downloading" ||
+                        progress.phase === "zipping" ||
+                        selectedFilesCount === 0
+                      }
+                      className="primary"
+                      title={i18n("action.drive.signInTitle", lang)}
+                    >
+                      ↑ {i18n("action.drive.upload", lang)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDriveSignOut}
+                      disabled={driveBusy}
+                      className="link-button"
+                      title={i18n("action.drive.signedInAs", lang)}
+                    >
+                      {i18n("action.drive.signOut", lang)}
+                    </button>
+                    {driveDoneUrl && (
+                      <a
+                        href={driveDoneUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="drive-link"
+                      >
+                        {i18n("action.drive.openFolder", lang)}
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleDriveSignIn}
+                    disabled={driveBusy}
+                    className="drive-signin"
+                    title={i18n("action.drive.signInTitle", lang)}
+                  >
+                    <GoogleDriveIcon />
+                    {driveBusy
+                      ? i18n("action.loading", lang)
+                      : i18n("action.drive.signIn", lang)}
+                  </button>
+                )}
+              </div>
               {transitCheck &&
                 (transitCheck.state === "found" ||
                   transitCheck.state === "notFound" ||

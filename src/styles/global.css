@@ -922,6 +922,89 @@ th {
 
 td { color: var(--text); }
 
+/* --- Sequence selection table (multi-night downloads) --- */
+
+.sequence-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.sequence-table-toolbar-label {
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+.sequence-table-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dot-sep {
+  color: var(--text-dim);
+  opacity: 0.5;
+}
+
+table.sequence-table th.col-sel,
+table.sequence-table td.col-sel {
+  width: 3rem;
+  text-align: center;
+}
+
+table.sequence-table th.col-sel input,
+table.sequence-table td.col-sel input {
+  cursor: pointer;
+  margin: 0;
+}
+
+table.sequence-table tr.contains-transit td {
+  /* tenue marca de fondo para la fila que contiene el tránsito
+     predicho, sin ser estridente. Se refuerza con el tick verde. */
+  background: rgba(74, 222, 128, 0.05);
+  border-left: 3px solid var(--ok);
+}
+
+table.sequence-table tr.contains-transit td:first-child {
+  padding-left: calc(0.6rem - 3px);
+}
+
+table.sequence-table tr.is-deselected td {
+  opacity: 0.45;
+}
+
+table.sequence-table tr.is-deselected td.col-sel input {
+  opacity: 1; /* mantener el checkbox visible */
+}
+
+.transit-tick {
+  display: inline-block;
+  margin-left: 0.4rem;
+  color: var(--ok);
+  font-weight: 700;
+  font-size: 1rem;
+  vertical-align: middle;
+}
+
+.download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 details {
   margin-top: 1rem;
   border-top: 1px solid var(--border);
