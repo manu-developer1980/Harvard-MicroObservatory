@@ -2,6 +2,14 @@
 // Devuelve la lista viva de exoplanetas disponibles en MicroObservatory,
 // parseada en tiempo real del desplegable oficial de la página del archivo.
 //
+// Rango de fechas: el HTML de MO tiene un parámetro `SortRange` (10/20/30)
+// que controla cuántos días hacia atrás muestra el desplegable. Por
+// defecto (sin parámetro) MO devuelve solo 10 días, lo que deja fuera
+// exoplanetas como HAT-P-19, HAT-P-27, KELT-20, Kepler-12, Qatar-4/6/9,
+// etc. que tengan observaciones más antiguas. Pedimos `SortRange=30`
+// (el máximo) para maximizar la cobertura. Si MO lo ignora o cambia
+// el parámetro, el efecto es "solo" perder los targets más antiguos.
+//
 // Caché: ninguna a propósito. El endpoint es barato (~50 KB de HTML) y
 // la UI lo refresca cada 60 s en memoria. Si MO añade/quita targets, los
 // usuarios los ven al recargar o al cumplirse el intervalo.
@@ -9,34 +17,13 @@
 import type { APIRoute } from "astro";
 import * as cheerio from "cheerio";
 import { t, getReqLang } from "@/lib/i18n";
+import { isExoplanet, normalizeMoName } from "@/lib/targets";
 
 const MO_URL =
-  "https://waps.cfa.harvard.edu/microobservatory/MOImageDirectory/ImageDirectory.php";
-
-// Prefijos que identifican exoplanetas en el catálogo de MO.
-// "All ExoPlanets" se trata aparte (es el comodín).
-const EXO_PREFIXES = [
-  "CoRoT",
-  "K2-",
-  "KELT",
-  "Kepler",
-  "Qatar",
-  "TOI",
-  "TRES",
-  "WASP",
-];
-
-// Exoplanetas con nombres que no encajan en los prefijos de arriba.
-// (Por ahora ninguno, pero el hook queda por si MO añade "OGLE", "HAT-P", etc.)
-const EXO_EXACT: string[] = [];
+  "https://waps.cfa.harvard.edu/microobservatory/MOImageDirectory/ImageDirectory.php" +
+  "?SortBy=Date&SortPos=DESC&SearchFor=&Type=&SortRange=30";
 
 const TIMEOUT_MS = 8_000;
-
-function isExoplanet(name: string): boolean {
-  if (name === "All ExoPlanets") return true;
-  if (EXO_EXACT.includes(name)) return true;
-  return EXO_PREFIXES.some((p) => name.startsWith(p));
-}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -68,8 +55,11 @@ export const GET: APIRoute = async ({ request }) => {
 
     // El desplegable de "Sort by Object" puede tener cualquier name;
     // parseamos TODOS los <option> y filtramos por nombre.
+    // Aplicamos `normalizeMoName` (HATP-19 → HAT-P-19) para que el
+    // formato enviado a NASA en el transit-check coincida con el
+    // canónico. Ver `normalizeMoName` para más detalles.
     const optionNames = $("option")
-      .map((_, el) => $(el).text().trim())
+      .map((_, el) => normalizeMoName($(el).text().trim()))
       .get();
     const unique = Array.from(new Set(optionNames));
     const exo = unique.filter(isExoplanet);
