@@ -31,20 +31,9 @@ import {
   type Session,
 } from "@/lib/filters";
 import { t, getReqLang, type Lang } from "@/lib/i18n";
+import { PreviewRequestSchema, parseBody } from "@/lib/schemas";
 
 export const prerender = false;
-
-type PreviewRequest = {
-  target?: string;
-  date?: string;
-  threshold?: number;
-  telescope?: string;
-  filter?: string;                  // "" o ausente = autodetect (el más común)
-  badGapMid?: number;               // frontera small/medium gap (minutos)
-  inclusiveWeather?: boolean;
-  requireDarks?: boolean;
-  lang?: Lang;                      // idioma para los motivos de descarte
-};
 
 type DateGroup = {
   date: string;             // "20260725"
@@ -123,29 +112,29 @@ export const POST: APIRoute = async ({ request }) => {
   // para que TODOS los mensajes vuelvan traducidos.
   const reqLang: Lang = getReqLang(request);
 
-  let body: PreviewRequest;
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as PreviewRequest;
+    rawBody = await request.json();
   } catch {
     return json({ ok: false, error: t("error.invalidJson", reqLang) }, 400);
   }
 
+  const parsed = parseBody(PreviewRequestSchema, rawBody);
+  if (!parsed.ok) {
+    return json({ ok: false, error: parsed.error }, 400);
+  }
+  const body = parsed.data;
+
   // El body puede sobreescribir el lang (caso típico: el cliente forzó
   // un idioma distinto al de Accept-Language con el switcher).
-  const finalLang: Lang =
-    body.lang === "es" || body.lang === "en" ? body.lang : reqLang;
+  const finalLang: Lang = body.lang ?? reqLang;
 
-  const target = (body.target ?? "").trim();
-  if (!target)
-    return json({ ok: false, error: t("error.missingTarget", finalLang) }, 400);
+  const target = body.target; // ya viene trimeado por Zod
 
-  const threshold = typeof body.threshold === "number" ? body.threshold : 85;
+  const threshold = body.threshold ?? 85;
   const inclusiveWeather = body.inclusiveWeather !== false; // default true
   const requireDarks = body.requireDarks !== false;          // default true
-  const badGapMid =
-    typeof body.badGapMid === "number" && body.badGapMid >= 4 && body.badGapMid <= 30
-      ? body.badGapMid
-      : 10;
+  const badGapMid = body.badGapMid ?? 10;                     // Zod ya acotó 4-30
 
   let start: Date | null;
   let end: Date | null;

@@ -53,6 +53,8 @@ import {
   type TransitHit,
   matchAllEphemerides,
 } from "@/lib/transit-match";
+import { TransitCheckRequestSchema, parseBody } from "@/lib/schemas";
+import { sqlEscapeLike } from "@/lib/sql-escape";
 
 export const prerender = false;
 
@@ -129,13 +131,10 @@ function toIsoUtc(s: string): string {
 }
 
 /**
- * Escapa comillas simples para SQL (ADQL). El resto de caracteres son
- * seguros en este contexto (no concatenamos input del usuario a nada que
- * se evalúe como código, solo como literales en la cláusula WHERE).
+ * `transitsInWindow` y `findNearest` viven ahora en `@/lib/transit-match`
+ * para poder testearlas aisladas. Ver `transit-match.test.ts` para los
+ * tests de regresión del bug de margen (WASP-67 b 2026-07-29).
  */
-function sqlEscape(s: string): string {
-  return s.replace(/'/g, "''");
-}
 
 async function tapQuery(sql: string): Promise<PlanetEph[] | null> {
   const url = `${TAP_URL}?query=${encodeURIComponent(sql)}&format=json`;
@@ -191,7 +190,7 @@ async function tapQuery(sql: string): Promise<PlanetEph[] | null> {
  * puede ser mucho mayor).
  */
 async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
-  const safe = sqlEscape(target);
+  const safe = sqlEscapeLike(target);
   // Cubrimos: hostname exacto, pl_name LIKE prefijo. El prefijo en pl_name
   // atrapa "WASP-135" -> "WASP-135 b" y "WASP-135 A" -> "WASP-135 A b".
   // Filtramos por tran_flag = 1 (solo planetas con tránsitos observados).
@@ -206,12 +205,18 @@ async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
   // case-sensitive, así que un "TRES-3" no matcheaba "TrES-3". Envolvemos
   // ambas partes en `LOWER()` para que cualquier capitalización del input
   // matchee el formato canónico.
+  //
+  // ESCAPE '\\' en LIKE: necesario porque `sqlEscape` neutraliza los
+  // wildcards `%` y `_` con prefijo `\`. Sin ESCAPE, un usuario podría
+  // enumerar la tabla metiendo `WASP-1%` y matchear WASP-12, WASP-121,
+  // etc. (defense in depth: el endpoint es read-only, pero la
+  // enumeración de planetas no es deseada).
   const query =
     `SELECT pl_name, hostname, pl_orbper, pl_orbpererr1, pl_tranmid, ` +
     `pl_tranmiderr1, pl_tranmiderr2, pl_trandur, pl_refname ` +
     `FROM ps ` +
     `WHERE (LOWER(hostname) = LOWER('${safe}') ` +
-    `OR LOWER(pl_name) LIKE LOWER('${safe}%')) ` +
+    `OR LOWER(pl_name) LIKE LOWER('${safe}%') ESCAPE '\\') ` +
     `AND tran_flag = 1`;
 
   const result = await tapQuery(query);
@@ -227,26 +232,25 @@ async function findPlanetEphemerides(target: string): Promise<PlanetEph[]> {
 export const POST: APIRoute = async ({ request }) => {
   const lang: Lang = getReqLang(request);
 
-  let body: { target?: string; start?: string; end?: string };
+  let rawBody: unknown;
   try {
-    body = (await request.json()) as typeof body;
+    rawBody = await request.json();
   } catch {
     return jsonResp({ ok: false, error: t("error.invalidJson", lang) }, 400);
   }
 
-  const target = (body.target ?? "").trim();
-  if (!target) {
-    return jsonResp(
-      { ok: false, error: t("error.missingTarget", lang) },
-      400,
-    );
+  const parsed = parseBody(TransitCheckRequestSchema, rawBody);
+  if (!parsed.ok) {
+    return jsonResp({ ok: false, error: parsed.error }, 400);
   }
+  const body = parsed.data;
 
+  const target = body.target; // ya viene trimeado y validado
   let startIso: string;
   let endIso: string;
   try {
-    startIso = toIsoUtc(body.start ?? "");
-    endIso = toIsoUtc(body.end ?? "");
+    startIso = toIsoUtc(body.start);
+    endIso = toIsoUtc(body.end);
   } catch (e) {
     return jsonResp(
       {
