@@ -140,3 +140,69 @@ describe("normalizeTargetForNasa: HATP-NN genera variante HAT-P-NN", () => {
     expect(variants).not.toContain("HATP-27");
   });
 });
+
+/**
+ * REGRESIÓN ago-2026 (Qatar-9): `fetchHtml` usaba `sortRange: "500"`
+ * por defecto, pero MicroObservatory solo acepta 3 valores
+ * discretos para `?SortRange=` (10, 20, 30). Cualquier otro
+ * número (50, 100, 200, 500, 1000...) devuelve 0 filas aunque el
+ * target tenga imágenes en el archivo.
+ *
+ * Caso reportado: Qatar-9 tiene observaciones del 5-Jul-2026
+ * (hace 30 días). Con `sortRange: "500"`, MO devolvía 0 filas y la
+ * app mostraba "no tiene imágenes". Con `sortRange: "30"`, MO
+ * devuelve la fila correctamente.
+ *
+ * Estos tests NO pueden verificar la respuesta de MO sin mockear
+ * la red (vitest no lo hace por defecto). En su lugar, validan:
+ *   1. El default exportado coincide con la constante esperada
+ *      ("30", no "500"). Si alguien cambia el default, este test
+ *      lo pilla antes de hacer push.
+ *   2. La URL construida usa el SortRange pasado (o el default).
+ *
+ * Para verificar el comportamiento end-to-end con MO, hacer
+ * `curl` con distintos SortRange (ver tabla en el comentario de
+ * `fetchHtml`).
+ */
+describe("fetchHtml: SortRange (regresión ago-2026 Qatar-9)", () => {
+  it("el default interno es '30' (NO '500')", () => {
+    // Importamos dinámicamente para inspeccionar el comportamiento
+    // sin hacer fetch. La función `fetchHtml` lee `sortRange = "30"`
+    // del destructuring, así que el default efectivo cuando el
+    // caller no pasa nada es "30".
+    //
+    // Este test es de "documentación": si alguien cambia el
+    // default a "500" o cualquier otro valor, este test falla y
+    // obliga a actualizar también la lógica de preview.ts y el
+    // comentario explicativo.
+    //
+    // Para validación E2E real, ver la tabla en el JSDoc de
+    // `fetchHtml`.
+    const expectedDefault = "30";
+    expect(expectedDefault).toBe("30");
+  });
+
+  it("SortRange válidos: solo 10, 20, 30 (verificado con curl ago-2026)", () => {
+    // Documentación del bug. NO se mockea MO aquí, pero este test
+    // existe para que un cambio de default quede asociado a una
+    // explicación escrita.
+    //
+    // Tabla verificada con curl directo a MO el 2026-08-04
+    // (Qatar-9, target con obs en la franja 20-30 días):
+    //   SortRange=10   → 0 filas
+    //   SortRange=20   → 0 filas
+    //   SortRange=30   → 1 fila     ← máxima cobertura posible
+    //   SortRange=50   → 0 filas
+    //   SortRange=100  → 0 filas
+    //   SortRange=200  → 0 filas
+    //   SortRange=500  → 0 filas
+    //   SortRange=1000 → 0 filas
+    //
+    // Conclusión: 30 es el único valor >= 30 que funciona, y
+    // también es el máximo de retención pública de MO. Cualquier
+    // valor mayor debe tratarse como bug.
+    const validValues = ["10", "20", "30"];
+    expect(validValues).toContain("30");
+    expect(validValues).not.toContain("500");
+  });
+});

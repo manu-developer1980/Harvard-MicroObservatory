@@ -174,7 +174,13 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   // 1. Fetch HTML del target
-  const targetHtml = await fetchHtml({ target, sortRange: "500" });
+  // SortRange: 30 es el máximo público de MicroObservatory (4 semanas
+  // de retención). Pasar "500" silenciosamente devolvía 0 filas para
+  // targets con observaciones en la franja 20-30 días (bug ago-2026
+  // Qatar-9: el antiguo "500" no es un valor reconocido por MO, así
+  // que devuelve 0 aunque el target tenga imágenes). Ver
+  // `src/lib/mo-client.ts → fetchHtml` para más detalles.
+  const targetHtml = await fetchHtml({ target, sortRange: "30" });
   if (targetHtml === null) {
     return json({ ok: false, error: "No se pudo obtener el listado del target" }, 502);
   }
@@ -284,7 +290,10 @@ export const POST: APIRoute = async ({ request }) => {
   // óptica, no a la corriente de oscuridad del sensor, así que el mismo
   // dark sirve para V, R, I, etc. (el script Python original tampoco
   // filtraba por filtro).
-  const darkHtml = await fetchHtml({ target: "Dark-C-", sortRange: "500" });
+  //
+  // SortRange: 30 (ver comentario sobre el target arriba). "500" no es
+  // un valor válido y devuelve 0 filas.
+  const darkHtml = await fetchHtml({ target: "Dark-C-", sortRange: "30" });
   let allDarkRows: ImageRecord[] = [];
   if (darkHtml && darkHtml !== "") {
     allDarkRows = parseRows(darkHtml);

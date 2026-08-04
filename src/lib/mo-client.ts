@@ -48,7 +48,19 @@ export async function fetchHtml(opts: FetchHtmlOptions): Promise<string | null> 
   const {
     target,
     type = "Object",
-    sortRange = "500",
+    // SortRange acepta solo 3 valores discretos en MicroObservatory:
+    // 10, 20, 30. Cualquier otro número (50, 100, 500...) devuelve
+    // 0 filas aunque el target tenga imágenes en el archivo — ver
+    // bug ago-2026 Qatar-9: el antiguo "500" silenciosamente dejaba
+    // fuera targets cuyas únicas observaciones estaban en la franja
+    // 20-30 días. 30 es también el máximo de retención pública de
+    // MO ("Images are stored in the directory for only four weeks!"),
+    // así que pedir más no aporta nada.
+    //
+    // Si MO algún día amplia el rango, basta con cambiar este
+    // default. Ver test E2E en `mo-client.test.ts → fetchHtml
+    // SortRange` si quieres verificar el comportamiento con curl.
+    sortRange = "30",
   } = opts;
   // MicroObservatory usa un formato distinto al de NASA para la
   // familia HAT-P-NN (ver `toMoSearchName`). Sin esta traducción,
