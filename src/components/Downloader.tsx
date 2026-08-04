@@ -110,6 +110,20 @@ type PreviewResponse = {
   sequenceStart: string;
   sequenceEnd: string;
   sequenceMinutes: number;
+  // Sesiones detectadas en la secuencia final (post-filtros). Sustituye
+  // al agrupamiento por fecha UTC: una sesión de 22:00 a 02:00 que
+  // cruza medianoche se reporta como UNA sola sesión. Ver
+  // `lib/filters.ts → clusterSessions`.
+  sessions: Array<{
+    id: number;
+    start: string;
+    end: string;
+    startDate: string;
+    endDate: string;
+    imageCount: number;
+    durationMinutes: number;
+    crossesMidnight: boolean;
+  }>;
 };
 
 // Respuesta de /api/transit-check (NASA Exoplanet Archive cross-check).
@@ -1290,6 +1304,38 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                 )}
               </li>
             )}
+            {preview.sessions.length > 1 ||
+            (preview.sessions.length === 1 &&
+              preview.sessions[0].crossesMidnight) ? (
+              <li className="sessions-summary">
+                <strong>
+                  {preview.sessions.length === 1
+                    ? i18n("summary.sessions.one", lang)
+                    : i18n("summary.sessions.other", lang, {
+                        count: preview.sessions.length,
+                      })}
+                </strong>
+                <ul className="sessions-list">
+                  {preview.sessions.map((s) => (
+                    <li key={s.id} className="session-item">
+                      {i18n("summary.session", lang, {
+                        id: s.id + 1,
+                        start: s.start,
+                        end: s.end,
+                        duration: formatDuration(s.durationMinutes),
+                        images: s.imageCount,
+                      })}
+                      {s.crossesMidnight && (
+                        <small className="hint midnight">
+                          {" "}
+                          ⚠ {i18n("summary.crossesMidnight", lang)}
+                        </small>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ) : null}
             {transitCheck && (
               <li className={`transit-check transit-${transitCheck.state}`}>
                 <span className="transit-icon" aria-hidden="true">

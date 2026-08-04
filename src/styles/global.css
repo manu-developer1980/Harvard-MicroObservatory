@@ -705,6 +705,35 @@ button.link-button:hover:not(:disabled) {
   color: var(--text);
 }
 
+/* Sesiones detectadas en la secuencia (multi-noche o cruzando medianoche).
+   Aparece solo cuando hay >1 sesión o 1 sola que cruza medianoche.
+   Ver `lib/filters.ts → clusterSessions` y `summary.sessions.*` en i18n. */
+.sessions-summary {
+  margin-top: 0.4rem;
+}
+.sessions-summary strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--text);
+}
+.sessions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.session-item {
+  padding: 0.25rem 0;
+  border-left: 2px solid var(--border);
+  padding-left: 0.6rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.92em;
+  color: var(--text-dim);
+}
+.session-item .hint.midnight {
+  color: #f5a623;          /* ámbar: aviso, no error */
+  margin-left: 0.3rem;
+}
+
 /* Zona de Google Drive, debajo del row de acciones principales.
    border-top sutil para separar visualmente la opción de subida
    de la descarga ZIP, sin necesidad de un fieldset extra. */

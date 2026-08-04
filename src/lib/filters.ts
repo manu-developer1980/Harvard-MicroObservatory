@@ -39,7 +39,118 @@ export type DiscardedRecord = {
 export type ApplyGapFilterResult = {
   kept: ImageRecord[];
   discarded: DiscardedRecord[];
+  /**
+   * Sesiones detectadas tras la agrupación (clustering por gap).
+   * Una sesión = un bloque continuo de imágenes separadas por gaps
+   * < `sessionBreakMin`. Sustituye al agrupamiento por fecha UTC que
+   * teníamos antes, que fallaba en secuencias que cruzan medianoche.
+   * Ver `clusterSessions`.
+   */
+  sessions: Session[];
 };
+
+// ---------------------------------------------------------------------------
+// Clustering por sesiones
+// ---------------------------------------------------------------------------
+
+/**
+ * Sesión = bloque continuo de observaciones separado de los vecinos
+ * por un gap > `sessionBreakMin` (default 30 min). Independiente de la
+ * fecha UTC: una sesión puede cruzar medianoche (ej. 23:30 day 1 →
+ * 00:30 day 2 con gaps de 30 min = misma sesión).
+ */
+export type Session = {
+  /** Índice dentro del array devuelto por `clusterSessions`. */
+  id: number;
+  /** Primer frame de la sesión, formato MO "23-Jul-2026 22:00:00" (UTC). */
+  start: string;
+  /** Último frame de la sesión, mismo formato. */
+  end: string;
+  /** YYYYMMDD del primer frame (UTC). */
+  startDate: string;
+  /** YYYYMMDD del último frame (UTC). */
+  endDate: string;
+  /** Número de imágenes en la sesión. */
+  imageCount: number;
+  /** Duración en minutos (end - start). */
+  durationMinutes: number;
+  /** `true` si la sesión cruza la medianoche UTC (startDate !== endDate). */
+  crossesMidnight: boolean;
+};
+
+/**
+ * Umbral por defecto para considerar un gap como corte de sesión.
+ * Coincide con `badGapHigh` del filtro de gaps: cualquier gap
+ * estrictamente mayor se interpreta como "el observador dejó de
+ * capturar, vuelve más tarde".
+ */
+export const DEFAULT_SESSION_BREAK_MIN = 30;
+
+/**
+ * Agrupa imágenes en sesiones separadas por gaps > `sessionBreakMin`.
+ * No depende de la fecha UTC, por lo que detecta correctamente
+ * secuencias que cruzan medianoche.
+ *
+ * Por qué este helper existe:
+ *   La versión anterior agrupaba por `YYYYMMDD` (fecha UTC) antes de
+ *   aplicar el filtro de gaps. Eso significaba que una sesión de
+ *   22:00 a 02:00 (cruzando medianoche) se partía en dos grupos
+ *   independientes, y el gap de 1.5h entre ellos nunca se evaluaba
+ *   contra el filtro. Con el clustering por sesión, esos dos grupos
+ *   ahora son uno solo, y los filtros se aplican correctamente sobre
+ *   el conjunto completo.
+ */
+export function clusterSessions(
+  rows: ImageRecord[],
+  sessionBreakMin: number = DEFAULT_SESSION_BREAK_MIN,
+): Session[] {
+  if (rows.length === 0) return [];
+  const sorted = [...rows].sort(
+    (a, b) => parseDt(a.datetime).getTime() - parseDt(b.datetime).getTime(),
+  );
+  const sessions: Session[] = [];
+
+  let startRec = sorted[0];
+  let endRec = sorted[0];
+  let count = 1;
+
+  const pushCurrent = (id: number) => {
+    const startDate = dateKey(parseDt(startRec.datetime));
+    const endDate = dateKey(parseDt(endRec.datetime));
+    sessions.push({
+      id,
+      start: startRec.datetime,
+      end: endRec.datetime,
+      startDate,
+      endDate,
+      imageCount: count,
+      durationMinutes: Math.round(
+        (parseDt(endRec.datetime).getTime() -
+          parseDt(startRec.datetime).getTime()) /
+          60000,
+      ),
+      crossesMidnight: startDate !== endDate,
+    });
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const r = sorted[i];
+    const gapMin =
+      (parseDt(r.datetime).getTime() - parseDt(endRec.datetime).getTime()) /
+      60000;
+    if (gapMin > sessionBreakMin) {
+      pushCurrent(sessions.length);
+      startRec = r;
+      endRec = r;
+      count = 1;
+    } else {
+      endRec = r;
+      count++;
+    }
+  }
+  pushCurrent(sessions.length);
+  return sessions;
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -73,6 +184,14 @@ export type ApplyGapFilterOptions = {
   badGapMid?: number;            // default 10 (frontera small/medium gap)
   weatherSensitive?: boolean;    // default true
   lang?: Lang;                   // idioma de los motivos de descarte
+  /**
+   * Gap mínimo (min) para considerar dos imágenes como pertenecientes
+   * a sesiones distintas. Default 30. Lo usamos para reemplazar el
+   * agrupamiento por fecha UTC: ahora una sesión de 22:00 a 02:00 que
+   * cruza medianoche se trata como UNA sola sesión (no dos fechas).
+   * Ver `clusterSessions`.
+   */
+  sessionBreakMin?: number;
 };
 
 export function applyGapFilter(
@@ -87,6 +206,7 @@ export function applyGapFilter(
     badGapMid = 10,
     weatherSensitive = true,
     lang = "en",
+    sessionBreakMin = DEFAULT_SESSION_BREAK_MIN,
   } = opts;
 
   // Frontera entre "gap pequeño con vecino sospechoso" y "gap medio siempre malo".
@@ -100,20 +220,22 @@ export function applyGapFilter(
   const passesWeather = (w: number) =>
     inclusiveWeather ? w >= threshold : w > threshold;
 
-  // Agrupar por fecha (UTC)
-  const byDate = new Map<string, ImageRecord[]>();
-  for (const r of rows) {
-    const d = parseDt(r.datetime);
-    const key = dateKey(d);
-    const arr = byDate.get(key);
-    if (arr) arr.push(r);
-    else byDate.set(key, [r]);
-  }
+  // Agrupar por SESIÓN (no por fecha UTC). Esto arregla el bug histórico
+  // donde secuencias que cruzaban medianoche se partían en dos grupos
+  // independientes y los gaps a ambos lados del cambio de día no se
+  // evaluaban. Ver `clusterSessions` y `project_memory.md`.
+  const sessionList = clusterSessions(rows, sessionBreakMin);
 
   const kept: ImageRecord[] = [];
   const discarded: DiscardedRecord[] = [];
 
-  for (const [, items] of byDate) {
+  for (const session of sessionList) {
+    const sessionStartMs = parseDt(session.start).getTime();
+    const sessionEndMs = parseDt(session.end).getTime();
+    const items = rows.filter((r) => {
+      const t = parseDt(r.datetime).getTime();
+      return t >= sessionStartMs && t <= sessionEndMs;
+    });
     const sorted = [...items].sort(
       (a, b) => parseDt(a.datetime).getTime() - parseDt(b.datetime).getTime(),
     );
@@ -203,7 +325,7 @@ export function applyGapFilter(
     }
   }
 
-  return { kept, discarded };
+  return { kept, discarded, sessions: sessionList };
 }
 
 export type FilterByDateRangeOptions = {

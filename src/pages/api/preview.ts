@@ -25,8 +25,10 @@ import {
   parseDt,
   dateKey,
   toDDMMYYYY,
+  clusterSessions,
   type ImageRecord,
   type DiscardedRecord,
+  type Session,
 } from "@/lib/filters";
 import { t, getReqLang, type Lang } from "@/lib/i18n";
 
@@ -86,6 +88,24 @@ type PreviewResponse = {
   sequenceStart: string;           // "27-Jul-2026 04:18:42" (UTC)
   sequenceEnd: string;             // "27-Jul-2026 08:55:12" (UTC)
   sequenceMinutes: number;         // duración en minutos
+  /**
+   * Sesiones detectadas en la secuencia final. Sustituye al agrupamiento
+   * por fecha UTC que teníamos antes: ahora una sesión de 22:00 a 02:00
+   * que cruza medianoche se reporta como UNA sola sesión. La UI puede
+   * mostrar la lista de sesiones y avisar si hay más de una.
+   */
+  sessions: Session[];
+  /**
+   * IDs de las imágenes de la primera y última sesión, para que la UI
+   * pueda enlazar a cada bloque sin tener que buscar por timestamp.
+   */
+  sessionWindows: Array<{
+    start: string;       // MO format
+    end: string;         // MO format
+    durationMinutes: number;
+    imageCount: number;
+    crossesMidnight: boolean;
+  }>;
 };
 
 function json(body: unknown, status = 200): Response {
@@ -176,6 +196,8 @@ export const POST: APIRoute = async ({ request }) => {
       sequenceStart: "",
       sequenceEnd: "",
       sequenceMinutes: 0,
+      sessions: [],
+      sessionWindows: [],
     } satisfies PreviewResponse);
   }
 
@@ -211,6 +233,8 @@ export const POST: APIRoute = async ({ request }) => {
       sequenceStart: "",
       sequenceEnd: "",
       sequenceMinutes: 0,
+      sessions: [],
+      sessionWindows: [],
     } satisfies PreviewResponse);
   }
 
@@ -384,6 +408,20 @@ export const POST: APIRoute = async ({ request }) => {
       .sort((a, b) => a.date.localeCompare(b.date)),
   };
 
+  // Re-clusterizamos la secuencia FINAL (después de aplicar filtros de
+  // weather + gap + darks) en sesiones. Esto es lo que se muestra al
+  // usuario: si después de descartar imágenes la secuencia queda
+  // partida en 2 sesiones (p.ej. porque se eliminó el bloque central
+  // por nubosidad), eso debe verse.
+  const finalSessions = clusterSessions(finalKept);
+  const sessionWindows = finalSessions.map((s) => ({
+    start: s.start,
+    end: s.end,
+    durationMinutes: s.durationMinutes,
+    imageCount: s.imageCount,
+    crossesMidnight: s.crossesMidnight,
+  }));
+
   return json({
     ok: true,
     target,
@@ -403,5 +441,7 @@ export const POST: APIRoute = async ({ request }) => {
     sequenceStart,
     sequenceEnd,
     sequenceMinutes,
+    sessions: finalSessions,
+    sessionWindows,
   } satisfies PreviewResponse);
 };

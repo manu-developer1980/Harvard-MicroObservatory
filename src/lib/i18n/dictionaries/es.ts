@@ -85,6 +85,11 @@ export const es = {
     "Tip: un tránsito exoplanetario típico dura 1–4 h. Si tu ventana es mucho más corta o está descentrada, la curva de luz saldrá parcial.",
   "summary.empty":
     "No hay fechas que cumplan los filtros. Prueba a relajar el umbral o el rango de fechas.",
+  "summary.sessions.one": "1 sesión detectada",
+  "summary.sessions.other": "{count} sesiones detectadas (captura multi-noche)",
+  "summary.session":
+    "Sesión {id}: {start} → {end} UTC ({duration}, {images} imágenes)",
+  "summary.crossesMidnight": "cruza medianoche",
 
   "discarded.title": "{count} imágenes descartadas (primeras)",
   "discarded.headers.date": "Fecha UT",

@@ -86,6 +86,11 @@ export const en = {
     "Tip: a typical exoplanet transit lasts 1–4 h. If your window is much shorter or off-centre, the light curve will be partial.",
   "summary.empty":
     "No dates pass the current filters. Try relaxing the threshold or the date range.",
+  "summary.sessions.one": "1 session detected",
+  "summary.sessions.other": "{count} sessions detected (multi-night capture)",
+  "summary.session":
+    "Session {id}: {start} → {end} UTC ({duration}, {images} images)",
+  "summary.crossesMidnight": "crosses midnight",
 
   "discarded.title": "{count} discarded images (first batch)",
   "discarded.headers.date": "UTC date",
