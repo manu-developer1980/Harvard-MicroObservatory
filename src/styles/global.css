@@ -309,23 +309,26 @@ label.checkbox-warn .hint {
 
 .targets-refresh {
   width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-dim);
-  font-size: 1.1rem;
+  color: var(--text);
+  font-size: 1.25rem;
+  line-height: 1;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, transform 0.4s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s, transform 0.4s;
 }
 .targets-refresh:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--accent);
+  background: rgba(110, 168, 254, 0.12);
 }
 .targets-refresh:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 .targets-refresh.spinning {
@@ -1068,7 +1071,7 @@ table.sequence-table tr.is-deselected td.col-sel input {
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.55rem;
 }
 
 .image-checklist-details > summary::-webkit-details-marker {
@@ -1076,19 +1079,29 @@ table.sequence-table tr.is-deselected td.col-sel input {
 }
 
 .image-checklist-details > summary::before {
-  content: "▸";
-  color: var(--accent);
-  font-size: 0.75rem;
-  transition: transform 0.15s;
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  border-right: 2px solid var(--text);
+  border-bottom: 2px solid var(--text);
+  transform: rotate(-45deg);
+  transition: transform 0.15s, border-color 0.15s;
+  opacity: 0.95;
 }
 
 .image-checklist-details[open] > summary::before {
-  transform: rotate(90deg);
+  transform: rotate(45deg);
+  border-color: var(--accent);
 }
 
 .image-checklist-details[open] > summary {
   border-bottom: 1px solid var(--border);
   color: var(--accent);
+}
+
+.image-checklist-details > summary:hover::before {
+  border-color: var(--accent);
 }
 
 .image-checklist {
