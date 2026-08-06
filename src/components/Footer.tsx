@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   t as i18n,
   getStoredLang,
@@ -18,10 +18,33 @@ import {
  *   2. initialLang (SSR)
  *   3. navigator.language
  *   4. "en" (default)
+ *
+ * Buy Me a Coffee: el embed oficial (`button.prod.min.js`) hace
+ * `document.writeln` al encontrar `script[data-name="bmc-button"]`, lo
+ * que destruye la página si se carga tras el parse. Aquí cargamos el
+ * script SIN ese atributo y llamamos a `window.bmcBtnWidget(...)` para
+ * inyectar el HTML en un contenedor junto a la firma.
  */
 type FooterProps = {
   initialLang?: Lang;
 };
+
+type BmcWindow = Window & {
+  bmcBtnWidget?: (
+    text: string,
+    slug: string,
+    color: string,
+    emoji: string,
+    font: string,
+    fontColor: string,
+    outlineColor: string,
+    coffeeColor: string,
+  ) => string;
+};
+
+const BMC_SCRIPT =
+  "https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js";
+const BMC_SLUG = "manu_astrofoto";
 
 export default function Footer({ initialLang }: FooterProps = {}) {
   // IMPORTANTE: el initial state debe coincidir EXACTAMENTE con el SSR
@@ -29,6 +52,7 @@ export default function Footer({ initialLang }: FooterProps = {}) {
   // `initialLang` (derivado de Accept-Language en index.astro); aplicamos
   // la preferencia de localStorage en un useEffect posterior al mount.
   const [lang, setLangState] = useState<Lang>(initialLang ?? "en");
+  const bmcRef = useRef<HTMLDivElement | null>(null);
 
   // Tras montar, sincronizamos con la preferencia persistida. Si difiere
   // del valor SSR, forzamos un re-render con el idioma guardado. Se
@@ -62,34 +86,82 @@ export default function Footer({ initialLang }: FooterProps = {}) {
     return () => window.removeEventListener("mo:lang", onLang as EventListener);
   }, []);
 
+  // Buy Me a Coffee widget (official script, safe React mount).
+  useEffect(() => {
+    const host = bmcRef.current;
+    if (!host || host.dataset.bmc === "1") return;
+    host.dataset.bmc = "1";
+
+    const render = () => {
+      const w = window as BmcWindow;
+      if (!w.bmcBtnWidget || !bmcRef.current) return;
+      bmcRef.current.innerHTML = w.bmcBtnWidget(
+        "Buy me a coffee",
+        BMC_SLUG,
+        "#FFDD00",
+        "",
+        "Bree",
+        "#000000",
+        "#000000",
+        "#ffffff",
+      );
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${BMC_SCRIPT}"]`,
+    );
+    if (existing && (window as BmcWindow).bmcBtnWidget) {
+      render();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = BMC_SCRIPT;
+    script.async = true;
+    // Sin data-name="bmc-button": evita document.writeln del embed.
+    script.onload = render;
+    script.onerror = () => {
+      if (!bmcRef.current) return;
+      bmcRef.current.innerHTML = `<a class="bmc-fallback" href="https://www.buymeacoffee.com/${BMC_SLUG}" target="_blank" rel="noopener">Buy me a coffee</a>`;
+    };
+    document.body.appendChild(script);
+  }, []);
+
   return (
     <footer>
-      <p className="credit">
-        <a
-          href="https://www.instagram.com/manu_astrofoto/"
-          target="_blank"
-          rel="noopener"
-          aria-label={i18n("footer.igAria", lang)}
-        >
-          <svg
-            className="ig-icon"
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+      <div className="credit-row">
+        <p className="credit">
+          <a
+            href="https://www.instagram.com/manu_astrofoto/"
+            target="_blank"
+            rel="noopener"
+            aria-label={i18n("footer.igAria", lang)}
           >
-            <rect x="3" y="3" width="18" height="18" rx="5" />
-            <circle cx="12" cy="12" r="4" />
-            <circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" />
-          </svg>
-          {i18n("footer.credit", lang)} <strong>@manu_astrofoto</strong> 🔭
-        </a>
-      </p>
+            <svg
+              className="ig-icon"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="5" />
+              <circle cx="12" cy="12" r="4" />
+              <circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" />
+            </svg>
+            {i18n("footer.credit", lang)} <strong>@manu_astrofoto</strong> 🔭
+          </a>
+        </p>
+        <div
+          className="bmc-wrap"
+          ref={bmcRef}
+          aria-label="Buy me a coffee"
+        />
+      </div>
       <p
         // El template incluye un <a> en el placeholder moLink, así que
         // necesitamos renderizarlo como HTML. La URL es hardcoded en el

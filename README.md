@@ -1,163 +1,239 @@
-# MicroObservatory Downloader — Web
+# MicroObservatory Downloader
 
-Sitio estático (Astro + React island) que replica la lógica de
-`download_mo.py` con UI en el navegador, descargando FITS como ZIP.
+**Select clear, continuous exoplanet FITS (+ Dark-C) from Harvard CFA MicroObservatory — ready for EXOTIC and Exoplanet Watch analysis.**
 
-## Stack
+A browser app that turns MicroObservatory’s public image directory into a guided workflow: live targets, weather and temporal-continuity filters, NASA transit ephemeris checks, per-image FITS QC, then ZIP download or Google Drive upload under `EXOTIC/<target>/`.
 
-- **Astro 5** (server output) + **TypeScript estricto**
-- **@astrojs/netlify** adapter — API routes se despliegan como Netlify Functions
-- **@astrojs/react** — única island para el formulario + preview + descarga
-- **JSZip** — empaquetado en el cliente
-- **cheerio** — parseo HTML server-side (en la Function)
+Deployed on Netlify. Stack: Astro 5 · React · TypeScript.
 
-## Arquitectura
+---
+
+## Why it exists
+
+[MicroObservatory](https://mo-www.cfa.harvard.edu/) (Harvard–Smithsonian Center for Astrophysics) publishes valuable citizen-science imaging of exoplanet hosts. Preparing that data for [EXOTIC](https://github.com/rzellem/EXOTIC) / [Exoplanet Watch](https://exoplanets.nasa.gov/exoplanet-watch/) still means:
+
+- Finding nights with enough clear-sky frames
+- Dropping sequences broken by long gaps or cloudy neighbors
+- Pairing lights with same-night Dark-C calibration frames
+- Checking that a session actually covers a predicted transit
+
+This project ports the filtering logic of the Python `download_mo.py` workflow into a single web UI so observers and educators can preview, curate, and export sequences without hand-editing directories.
+
+> Independent community tool. Not an official NASA or Harvard product.
+
+---
+
+## What you can do
+
+- **Live exoplanet target list** from MicroObservatory (auto-refresh ~60 s)
+- **Weather + gap filters** with configurable clear-sky threshold and max inter-frame gap
+- **Session grouping** that correctly handles sequences crossing midnight UTC; multi-session nights use folders like `YYYYMMDD-1`, `YYYYMMDD-2`
+- **NASA Exoplanet Archive ephemeris check** — does this session contain a predicted transit midpoint?
+- **Per-image checklist + FITS viewer** (server-rendered PNG stretch) to discard bad frames before download
+- **ZIP download** in the browser (parallel FITS fetch via proxy)
+- **Google Drive upload** to `EXOTIC/<target>/` with the same folder layout (OAuth scope `drive.file` only)
+- **English / Spanish** UI
+
+---
+
+## Typical workflow
+
+1. Open the app and pick an exoplanet from the live list.
+2. Set date range, clear-sky threshold (recommended ≥ 85%), max gap (recommended 10 min), telescope, and capture filter (or auto).
+3. Click **Preview** — review kept vs discarded frames and session groups.
+4. Optionally run the **transit check** against NASA ephemerides for each session.
+5. Open the **FITS viewer** from the checklist; discard frames that fail visual QC.
+6. **Download ZIP** or **Sign in with Google Drive** and upload to `EXOTIC/<target>/`.
+7. Point EXOTIC at the resulting folder structure and reduce as usual.
+
+### Screenshots (demo: CoRoT-2)
+
+**1. Configure** — live target list, clear-sky threshold, max gap, telescope, EXOTIC filter lock:
+
+![Form: CoRoT-2 on Cecilia with clear-sky and gap filters](docs/screenshots/01-form.png)
+
+**2. Preview** — kept sessions, NASA Archive transit check, ZIP / Drive export:
+
+![Preview summary with session table and download actions](docs/screenshots/02-preview.png)
+
+**3. Per-image checklist** — select or discard individual FITS before download:
+
+![Per-image checklist of transit FITS with sky %](docs/screenshots/03-checklist.png)
+
+**4. FITS viewer** — stretched PNG preview, header metadata, discard / navigate:
+
+![FITS viewer modal with star field and metadata](docs/screenshots/04-fits-viewer.png)
+
+---
+
+## Science filters
+
+Filter logic lives in [`src/lib/filters.ts`](src/lib/filters.ts) (TypeScript port of `download_mo.py`). Defaults:
+
+| Rule | Transit (weather-sensitive) | Dark-C |
+|---|---|---|
+| Clear-sky | Discard if weather is below threshold (default inclusive: keep if ≥ threshold) | No weather filter |
+| Small gap (4 → max-gap min) | Discard if neighbor is cloudy | — |
+| Medium gap (max-gap → 30 min) | Discard always (operational discontinuity) | Medium gaps marked bad |
+| Gap ≥ 30 min | Session break — OK (starts a new session) | Same session break |
+| Global | A date/session is downloadable only if it has transit frames **and** darks for the chosen telescope (unless “Allow without darks”) | Same-night, same telescope |
+
+**Configurable max gap** (`badGapMid`, UI default **10 min**): raising it tolerates longer operational pauses (slew, refocus) before treating a gap as a hard break.
+
+**Sessions** are clustered by gap ≥ 30 min, not by UTC calendar date, so a night that runs 22:00 → 02:00 stays one continuous sequence.
+
+**Capture filter:** EXOTIC expects a single filter across the sequence; the UI can lock to the most common filter or let you choose.
+
+### Transit ephemeris check
+
+[`POST /api/transit-check`](src/pages/api/transit-check.ts) queries the [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/) TAP table `ps`, then predicts midpoints with \(t_n = t_0 + n\,P\). When multiple ephemerides exist, the app picks the **most precise** for the query epoch (propagated uncertainty), and reports whether a midpoint falls inside (or near) the session window. Name matching handles MO ↔ NASA variants (e.g. `HAT-P` ↔ `HATP`).
+
+---
+
+## Data sources
+
+| Source | Role |
+|---|---|
+| [MO Image Directory](https://waps.cfa.harvard.edu/microobservatory/MOImageDirectory/ImageDirectory.php) | Live target list and HTML row metadata |
+| [MO FITS host](https://mo-www.cfa.harvard.edu/ImageDirectory/) | Raw FITS download (proxied) |
+| [NASA Exoplanet Archive TAP](https://exoplanetarchive.ipac.caltech.edu/TAP/sync) | Transit ephemerides (`ps`) |
+| Google Drive API | Optional upload; scope **`drive.file`** — the app only sees files it creates |
+
+---
+
+## Quick start
+
+```bash
+cp .env.example .env   # set PUBLIC_GOOGLE_CLIENT_ID if you need Drive upload
+npm install
+npm run dev            # http://localhost:4321
+```
+
+Useful scripts:
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Astro dev server |
+| `npm run build` | Production build → `dist/` |
+| `npm run netlify` | Local Netlify (Functions + Edge) |
+| `npm test` | Vitest unit tests |
+
+---
+
+## Architecture
 
 ```
 src/
 ├── pages/
-│   ├── index.astro              ← UI principal
+│   ├── index.astro                 # Main UI
 │   └── api/
-│       ├── preview.ts           ← POST: aplica filtros y devuelve JSON
-│       └── fits/[file].ts       ← GET: proxy CORS de un FITS desde MO
-├── lib/
-│   ├── targets.ts               ← lista de exoplanetas
-│   ├── filters.ts               ← applyGapFilter + helpers (puerto del .py)
-│   └── mo-client.ts             ← fetchHtml + parseRows (cheerio)
+│       ├── preview.ts              # POST: filter + session groups (no FITS bytes)
+│       ├── targets.ts              # GET: live exo list from MO
+│       ├── transit-check.ts        # POST: NASA TAP ephemeris match
+│       ├── fits/[file].ts          # GET: CORS proxy for raw FITS
+│       └── fits-view/[file].ts     # GET: FITS → PNG (+ optional metadata)
 ├── components/
-│   └── Downloader.tsx           ← island React: form + preview + zip
-└── styles/
-    └── global.css
+│   ├── Downloader.tsx              # Form, preview, ZIP, Drive
+│   ├── ImageChecklist.tsx          # Per-frame selection
+│   ├── FitsViewer.tsx              # Modal PNG viewer
+│   └── Footer.tsx
+├── lib/
+│   ├── mo-client.ts                # MO HTML fetch/parse (HAT-P naming, SortRange)
+│   ├── filters.ts                  # Weather/gap/session clustering
+│   ├── transit-match.ts            # Ephemeris math + name variants
+│   ├── sequence-table.ts           # Download file list helpers
+│   ├── google-drive.ts             # GIS OAuth + resumable upload
+│   ├── fits-parser.ts / fits-stretch.ts
+│   ├── schemas.ts / cors.ts / sql-escape.ts / rate-limit.ts
+│   └── i18n/                       # EN / ES dictionaries
+├── middleware.ts                   # Security headers + CSP
+└── styles/global.css
+
+netlify/
+└── edge-functions/rate-limit.ts    # /api/preview, /api/transit-check
 ```
 
-## Setup local
+**Client-side ZIP:** FITS are fetched through `/api/fits/...` and packed with JSZip (4 parallel workers), avoiding Netlify function body/time limits for bulk download.
+
+---
+
+## API
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/preview` | Body: target, date range, threshold, gap, telescope, filter, darks flag. Returns session groups, kept/discarded frames, discovered telescopes/filters. |
+| `GET` | `/api/targets` | Live exoplanet names from MO’s directory dropdown. |
+| `POST` | `/api/transit-check` | Body: target + session `start`/`end`. Returns midpoints in/near the window vs NASA Archive. |
+| `GET` | `/api/fits/{filename}` | Proxy of MO FITS with CORS allowlist (`ALLOWED_FITS_ORIGINS`). |
+| `GET` | `/api/fits-view/{filename}` | Renders a stretched PNG preview; `?meta=1` for header metadata. |
+| `OPTIONS` | `/api/fits/{filename}` | CORS pre-flight. |
+
+---
+
+## Deploy (Netlify)
 
 ```bash
-cd web/
-cp .env.example .env       # edita PUBLIC_GOOGLE_CLIENT_ID (ver sección Drive)
-npm install
-npm run dev                # http://localhost:4321
-```
-
-## Build + deploy a Netlify
-
-```bash
-npm install -g netlify-cli   # solo la primera vez
+npm install -g netlify-cli   # once
 netlify login
-netlify init                  # enlaza con el sitio (o crea uno nuevo)
+netlify init
 netlify deploy --prod
 ```
 
-O conectar el repo a Netlify directamente (build command `npm run build`,
-publish dir `dist`).
+Or connect the GitHub repo in the Netlify UI:
 
-## Endpoints
+- **Build command:** `npm run build`
+- **Publish directory:** `dist`
 
-| Método | Path | Descripción |
+### Environment variables
+
+See [`.env.example`](.env.example).
+
+| Variable | Where | Purpose |
 |---|---|---|
-| `POST` | `/api/preview` | Body: `{target, date?, threshold?, telescope?}`. Devuelve JSON con `transitByDate`, `transitDiscarded`, telescopios descubiertos, etc. |
-| `GET` | `/api/fits/{filename}` | Proxy de `https://mo-www.cfa.harvard.edu/ImageDirectory/{filename}`. CORS con allowlist (`ALLOWED_FITS_ORIGINS`); see "Security" abajo. |
-| `OPTIONS` | `/api/fits/{filename}` | Pre-flight CORS. |
+| `PUBLIC_GOOGLE_CLIENT_ID` | Browser | Google Identity Services for Drive upload |
+| `ALLOWED_FITS_ORIGINS` | Server | Comma-separated CORS allowlist for FITS proxies (deny-by-default in production) |
+| `RATE_LIMIT_WINDOW_SEC` | Edge | Window length (default `60`) |
+| `RATE_LIMIT_PREVIEW_MAX` | Edge | Max `/api/preview` requests per IP per window (default `30`) |
+| `RATE_LIMIT_TRANSIT_CHECK_MAX` | Edge | Max `/api/transit-check` per IP per window (default `20`) |
 
-## Reglas de filtrado (idénticas al script Python)
+### Google Drive setup (once)
 
-**Tránsito** (`weather_sensitive=true`):
-- weather < threshold → descartar
-- gap 4-5 min + vecino nuboso → descartar
-- gap 5-30 min → descartar
-- gap ≥ 30 min → OK (corte de sesión)
-- gap < 4 min → OK
+1. [Google Cloud Console](https://console.cloud.google.com/) → enable **Google Drive API**.
+2. OAuth consent screen (External or Internal) with scope `https://www.googleapis.com/auth/drive.file`.
+3. Create **OAuth client ID** (Web application). Authorized JavaScript origins: `http://localhost:4321` and your Netlify URL.
+4. Put the Client ID in `.env` as `PUBLIC_GOOGLE_CLIENT_ID` and restart `npm run dev`.
 
-**Darks** (sin filtros adicionales):
-- Solo se usan los que existan en la fecha de un tránsito válido
+The app uploads individual FITS into `EXOTIC/<target>/<date>/` (and `.../darks/`), not a single ZIP — the layout EXOTIC expects. Tokens are short-lived access tokens in `localStorage` (no refresh token). Use **Disconnect** when finished.
 
-**Regla global**: una fecha solo se descarga si tiene tránsito Y darks
-del telescopio elegido (toggle "Requerir darks").
+---
 
-## Limitaciones Netlify
+## Security & limits
 
-- **Funciones free tier**: 10s de ejecución, 1024 MB RAM, 6 MB body.
-- El endpoint `/api/preview` solo hace fetch de HTML + filtrado (sin FITS),
-  encaja sin problemas.
-- El proxy `/api/fits/[file]` hace streaming de un único FITS (~656 KB)
-  por request, sin retención en memoria.
-- La descarga masiva + zip se hace en el cliente con `JSZip` (4 workers
-  en paralelo), evitando los límites del servidor.
+- **Headers / CSP** via [`src/middleware.ts`](src/middleware.ts) (`X-Frame-Options`, `Referrer-Policy`, strict CSP on HTML).
+- **CORS** on FITS proxies: allowlist only; `Vary: Origin` always set.
+- **Rate limiting** on preview and transit-check (Netlify Edge + Blobs); `429` + `Retry-After` when exceeded; fail-open if Blobs is unavailable.
+- **Input validation** with Zod (`.strict()`); ADQL wildcards escaped for TAP queries.
+- **Netlify free tier:** function time/RAM/body limits apply. Preview and transit-check only touch HTML/JSON metadata; bulk FITS stay on the client.
 
-## Google Drive upload
+---
 
-La app permite subir la misma secuencia de FITS a una carpeta
-`EXOTIC/<target>/` de tu Google Drive, replicando la estructura del ZIP
-(`<date>/<fits>` y `<date>/darks/<fits>`).
+## What’s new in v0.1.0
 
-### Cómo funciona
+First official release of `mo-downloader-web`.
 
-- OAuth 2.0 con **Google Identity Services** en el navegador, scope
-  `https://www.googleapis.com/auth/drive.file`. La app solo puede ver
-  y gestionar los archivos que ella misma suba; **no** tiene acceso al
-  resto de tu Drive.
-- El access token se guarda en `localStorage` con su `expires_in`
-  (~1 h). Al caducar, la app te pide re-autenticar.
-- Las subidas usan `uploadType=resumable` para soportar FITS grandes
-  (10–20 MB).
-- Concurrencia: 4 workers en paralelo (igual que la descarga ZIP),
-  muy por debajo del rate limit de Drive (1000 req / 100 s).
-- Si ya tienes la carpeta `EXOTIC/` y/o `EXOTIC/<target>/` en tu Drive,
-  se reutilizan: el sistema cachea los folder IDs en memoria durante
-  la sesión.
+- **In-browser FITS viewer** — stretched PNG preview, metadata, prev/next, discard before download
+- **NASA transit ephemeris check** — TAP `ps` + most-precise ephemeris for the session epoch
+- **Session-aware packaging** — midnight-crossing clusters; multi-session nights as `YYYYMMDD-N` folders
+- **MO catalog robustness** — `HAT-P` ↔ `HATP` name bridging; `SortRange=30` (valid MO range) so targets like Qatar-9 return full lists
+- **EXOTIC-oriented export** — ZIP or Google Drive under `EXOTIC/<target>/` with Dark-C sidecar folders
+- **Bilingual UI** (EN / ES) and hardened API surface (Zod, CORS allowlist, edge rate limits)
 
-### Setup (solo una vez)
+---
 
-1. **Google Cloud Console** → [console.cloud.google.com](https://console.cloud.google.com/).
-2. Crea un proyecto (o reutiliza uno existente).
-3. **APIs & Services → Library** → habilita **Google Drive API**.
-4. **APIs & Services → OAuth consent screen**:
-   - User type: **External** (o Internal si usas Google Workspace).
-   - Scopes: añade `https://www.googleapis.com/auth/drive.file`.
-   - Test users: añade tu email mientras esté en modo "Testing".
-5. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
-   - Application type: **Web application**.
-   - Authorized JavaScript origins:
-     - `http://localhost:4321` (dev)
-     - `https://tu-sitio.netlify.app` (producción)
-6. Copia el **Client ID** y pégalo en `web/.env`:
-   ```
-   PUBLIC_GOOGLE_CLIENT_ID=1234567890-abc...xyz.apps.googleusercontent.com
-   ```
-7. Reinicia `npm run dev`. El botón "Sign in with Google Drive"
-   debería abrir el popup de consentimiento en el primer click.
+## Credits
 
-### Lo que la app NO hace (por diseño)
+- **Data:** [MicroObservatory](https://mo-www.cfa.harvard.edu/) — Harvard–Smithsonian Center for Astrophysics
+- **Ephemerides:** [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/)
+- **Analysis pipeline (downstream):** [EXOTIC](https://github.com/rzellem/EXOTIC) · [NASA Exoplanet Watch](https://exoplanets.nasa.gov/exoplanet-watch/)
 
-- **No** sube el ZIP completo: sube los FITS sueltos con la
-  estructura de carpetas, más útil para EXOTIC.
-- **No** comparte la carpeta con nadie: queda privada en tu cuenta.
-- **No** usa refresh tokens: solo access tokens de corta duración
-  guardados en `localStorage`. Si quieres más seguridad, cierra
-  sesión con el botón "Desconectar" tras subir.
-- **No** se reintenta automáticamente en subidas fallidas: el error
-  se muestra en la barra de progreso y puedes volver a pulsar "Subir".
-
-## Seguridad
-
-- **Cabeceras HTTP**: `src/middleware.ts` aplica `X-Content-Type-Options`,
-  `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`
-  y `Permissions-Policy` (cierra APIs no usadas) a TODAS las respuestas.
-  Las páginas HTML añaden además una CSP estricta.
-- **CORS del proxy FITS**: `/api/fits/[file]` solo espeja el `Origin` del
-  request si está en la allowlist `ALLOWED_FITS_ORIGINS` (server-only,
-  deny-by-default en producción). `Vary: Origin` se añade siempre para
-  evitar cache poisoning en la CDN. Definir en `.env` o en
-  *Netlify → Environment variables*.
-- **Rate limiting**: Netlify Edge Function (en `netlify/edge-functions/`)
-  con counter en Netlify Blobs. Por defecto, 30 req/min por IP en
-  `/api/preview` y 20 req/min en `/api/transit-check`. Configurable con
-  `RATE_LIMIT_PREVIEW_MAX`, `RATE_LIMIT_TRANSIT_CHECK_MAX`,
-  `RATE_LIMIT_WINDOW_SEC`. Si excede, devuelve `429 Too Many Requests`
-  con `Retry-After`. Fail-open si Blobs no responde (preferible a tirar
-  la API por un blip del storage).
-- **Validación de input**: `src/lib/schemas.ts` valida los body de los
-  endpoints POST con Zod (charset allowlist, `.strict()` rechaza claves
-  desconocidas, sin coerción de tipos).
-- **ADQL escape**: `src/lib/sql-escape.ts` neutraliza wildcards de LIKE
-  (`%`, `_`) y comillas; la query usa `ESCAPE '\'`.
+Built for educators, citizen scientists, and anyone reducing MicroObservatory transit photometry. Feedback welcome via GitHub Issues.

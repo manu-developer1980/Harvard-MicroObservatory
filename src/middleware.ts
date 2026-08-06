@@ -19,9 +19,10 @@
  * Solo en respuestas HTML añade Content-Security-Policy estricta:
  *   - default-src 'self'
  *   - script-src 'self' 'unsafe-inline' https://accounts.google.com
+ *       https://cdnjs.buymeacoffee.com
  *       'unsafe-inline' es necesario porque Astro inyecta scripts de
  *       hidratación inline (`<astro-island>`); endurecer a nonces
- *       queda como follow-up.
+ *       queda como follow-up. buymeacoffee.com: widget del footer.
  *   - connect-src permite hablar con la API de Drive y GIS
  *   - frame-src solo para el popup de OAuth de Google
  *   - frame-ancestors 'none' como segunda línea anti-clickjacking
@@ -67,15 +68,16 @@ const CSP = [
   // hidratación (astro-island custom elements). Endurecer a nonces
   // requeriría render hooks en cada isla. Trade-off aceptado: el
   // scope `drive.file` minimiza el blast radius si hubiera XSS.
-  "script-src 'self' 'unsafe-inline' https://accounts.google.com",
+  "script-src 'self' 'unsafe-inline' https://accounts.google.com https://cdnjs.buymeacoffee.com",
   // Estilos: la app usa CSS modules y estilos inline para algunas
   // animaciones del progreso. Permitimos 'unsafe-inline' aquí.
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
+  // fonts.googleapis.com: hoja que inyecta el widget Buy Me a Coffee.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob: https://cdnjs.buymeacoffee.com https://www.buymeacoffee.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
   // Conectividad: API de Drive (subida) y NASA (transit-check) sale
   // desde el cliente, no del servidor.
-  "connect-src 'self' https://www.googleapis.com https://accounts.google.com",
+  "connect-src 'self' https://www.googleapis.com https://accounts.google.com https://www.buymeacoffee.com https://cdnjs.buymeacoffee.com",
   // El popup de OAuth de Google NO es un iframe (es window.open), pero
   // por si en el futuro cambiamos a flow con iframe, lo dejamos
   // permitido solo para accounts.google.com.
