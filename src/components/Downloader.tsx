@@ -585,15 +585,6 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   );
   const transitCheckTokenRef = useRef(0);
 
-  // Anti auto-fetch en el mount: el target arranca con un valor por
-  // defecto ("Qatar-6") y el useEffect de "Paso 1" tiene [target] como
-  // dependencia, lo que dispara un fetchPreview automático al cargar la
-  // página — antes de que el usuario haya hecho nada. Eso generaba un
-  // error/loading state no deseado al primer render. Marcamos el primer
-  // ciclo como "skip" para que solo se ejecute cuando el usuario cambie
-  // el target interactivamente.
-  const targetChangeSkipRef = useRef(true);
-
   // Google Drive: el token se persiste en localStorage desde
   // google-drive.ts. Al montar comprobamos si sigue válido (1h de
   // expiry) y lo reflejamos en estado. El token REAL usado al subir
@@ -722,17 +713,25 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     }
   };
 
-  // Paso 1: descubrir telescopios cuando cambia el target
+  // Cuando llega la lista live, si el target actual no está (p.ej. el
+  // default "Qatar-6" dejó de estar en MO), elegimos uno válido. Sin
+  // esto el <select> puede mostrar un value huérfano y el discovery de
+  // telescopios falla en silencio.
   useEffect(() => {
-    // Saltamos la primera ejecución: es la del mount inicial con el
-    // target por defecto. No queremos lanzar un fetchPreview antes de
-    // que el usuario haya interactuado con la página.
-    if (targetChangeSkipRef.current) {
-      targetChangeSkipRef.current = false;
-      return;
-    }
+    if (targets.length === 0) return;
+    if (targets.includes(target)) return;
+    const next =
+      targets.find((t) => t !== "All ExoPlanets") ?? targets[0];
+    if (next) setTarget(next);
+  }, [targets, target]);
+
+  // Paso 1: descubrir telescopios cuando cambia el target (también en
+  // el mount inicial: sin esto Preview queda disabled={!telescope}
+  // hasta que el usuario cambie de exo a mano).
+  useEffect(() => {
     let cancelled = false;
     setTelescopes(null);
+    setTelescope("");
     setFilters(null);
     setFilter("");
     setPreview(null);
@@ -742,9 +741,10 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     fetchPreview({ target })
       .then((data) => {
         if (cancelled) return;
-        setTelescopes(data.telescopes ?? []);
-        if (data.telescopes && data.telescopes.length === 1) {
-          setTelescope(data.telescopes[0]);
+        const list = data.telescopes ?? [];
+        setTelescopes(list);
+        if (list.length === 1) {
+          setTelescope(list[0]);
         }
       })
       .catch((e) => {
