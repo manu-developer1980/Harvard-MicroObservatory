@@ -23,6 +23,8 @@ import {
   uploadSequenceToDrive,
   type DriveFile,
 } from "@/lib/google-drive";
+import ImageChecklist from "@/components/ImageChecklist";
+import FitsViewer from "@/components/FitsViewer";
 
 // Importamos JSZip solo en el cliente (dentro del handler) para que el SSR
 // de Astro no intente evaluar el CJS de jszip (su entry usa `require()`).
@@ -520,6 +522,21 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     () => new Set(),
   );
 
+  // FITS individuales marcados (transit; los darks no se incluyen
+  // porque no son visualmente informativos y siempre se descargan).
+  // Se re-inicializa con el conjunto completo cada vez que llega
+  // un preview nuevo (ver useEffect de abajo). El botón "Descartar"
+  // del visor modal saca un FITS de este Set.
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // FITS actualmente abierto en el visor modal. null = visor cerrado.
+  // El viewer se posiciona sobre `selectedFiles` (en el orden de
+  // aparición del preview) y el botón Descartar saca el archivo
+  // actual de `selectedFiles` y avanza al siguiente.
+  const [viewerFile, setViewerFile] = useState<string | null>(null);
+
   // Cuando llega un preview nuevo, marcamos todas sus secuencias
   // como seleccionadas. Esto cubre dos casos:
   //   (a) primer preview: Set estaba vacío
@@ -532,8 +549,23 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
       setSelectedFolderNames(
         new Set(preview.transitByDate.map((g) => g.folderName)),
       );
+      // Re-inicializamos los FITS individuales seleccionados al
+      // conjunto completo de las imágenes de tránsito que pasan
+      // filtros. Los descartes del visor modal se almacenan como
+      // archivos AUSENTES de este Set. Los darks NO se incluyen
+      // (siempre se descargan y no son visualmente informativos).
+      const allFits = new Set<string>();
+      for (const g of preview.transitByDate) {
+        for (const r of g.transit) allFits.add(r.fits);
+      }
+      setSelectedFiles(allFits);
+      // Si el visor estaba abierto apuntando a un archivo que ya
+      // no existe en el nuevo preview, lo cerramos.
+      setViewerFile((cur: string | null) => (cur && allFits.has(cur) ? cur : null));
     } else {
       setSelectedFolderNames(new Set());
+      setSelectedFiles(new Set());
+      setViewerFile(null);
     }
   }, [preview]);
 
