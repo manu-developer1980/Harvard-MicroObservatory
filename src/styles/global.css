@@ -75,23 +75,47 @@ footer .ig-icon { flex-shrink: 0; }
 footer .bmc-wrap {
   display: flex;
   justify-content: center;
-  min-height: 60px;
+  min-height: 0;
 }
 
 footer .bmc-wrap .bmc-btn-container {
   display: inline-flex;
 }
 
+/* Override del widget oficial BMC (viene con height: 60px / min-width: 210px). */
+footer .bmc-wrap .bmc-btn {
+  min-width: 0 !important;
+  height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+}
+
+footer .bmc-wrap .bmc-btn svg {
+  height: 18px !important;
+  width: auto !important;
+  transform: none !important;
+  margin-bottom: 0 !important;
+}
+
+footer .bmc-wrap .bmc-btn-text {
+  font-size: 13px !important;
+  margin-left: 6px !important;
+  line-height: 1 !important;
+  width: auto !important;
+}
+
 footer .bmc-fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 210px;
-  height: 60px;
-  padding: 0 24px;
-  border-radius: 12px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
   background: #ffdd00;
   color: #000 !important;
+  font-size: 0.8rem;
   font-weight: 700;
   text-decoration: none !important;
 }
