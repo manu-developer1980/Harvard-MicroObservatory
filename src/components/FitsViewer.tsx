@@ -84,16 +84,24 @@ export default function FitsViewer({
   const abortRef = useRef<AbortController | null>(null);
 
   const currentIdx = orderedFiles.indexOf(currentFile);
-  const position =
-    currentIdx >= 0 ? currentIdx + 1 : 0;
+  const position = currentIdx >= 0 ? currentIdx + 1 : 0;
   const total = orderedFiles.length;
   const hasPrev = currentIdx > 0;
   const hasNext = currentIdx >= 0 && currentIdx < total - 1;
 
+  // Si el archivo actual ya no está en la lista (p.ej. fue
+  // descartado y la lista de navegables se ha vaciado), cerramos.
+  // Este effect debe vivir siempre en el top-level (Rules of Hooks).
+  useEffect(() => {
+    if (!currentFile || currentIdx < 0) {
+      onClose();
+    }
+  }, [currentFile, currentIdx, onClose]);
+
   // Carga los metadatos del archivo actual cada vez que cambia.
   // Si abortamos por cambio rápido, no contaminamos el siguiente render.
   useEffect(() => {
-    if (!currentFile) return;
+    if (!currentFile || currentIdx < 0) return;
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -103,9 +111,10 @@ export default function FitsViewer({
     setImgErr(null);
     (async () => {
       try {
-        const r = await fetch(VIEW_BASE + encodeURIComponent(currentFile) + "?meta=1", {
-          signal: ctrl.signal,
-        });
+        const r = await fetch(
+          VIEW_BASE + encodeURIComponent(currentFile) + "?meta=1",
+          { signal: ctrl.signal },
+        );
         if (!r.ok) {
           const text = await r.text();
           throw new Error(text || `HTTP ${r.status}`);
@@ -119,7 +128,7 @@ export default function FitsViewer({
       }
     })();
     return () => ctrl.abort();
-  }, [currentFile]);
+  }, [currentFile, currentIdx]);
 
   // Teclado: Esc / ← / →
   useEffect(() => {
@@ -140,21 +149,13 @@ export default function FitsViewer({
   }, [hasPrev, hasNext, onClose, onPrev, onNext]);
 
   if (!currentFile || currentIdx < 0) {
-    // Si el archivo actual ya no está en la lista (p.ej. fue
-    // descartado y la lista de navegables se ha vaciado para esa
-    // imagen), cerramos automáticamente al siguiente tick.
-    // Hacemos esto en un effect para evitar setState durante render.
-    useEffect(() => {
-      onClose();
-    }, [onClose]);
     return null;
   }
 
   const imgUrl = `${VIEW_BASE}${encodeURIComponent(currentFile)}?stretch=asinh`;
+  const unknown = i18n("viewer.metadata.unknown", lang);
   const fmt = (v: number | undefined): string =>
-    v === undefined || v === null || Number.isNaN(v)
-      ? i18n("viewer.metadata.unknown", lang)
-      : String(v);
+    v === undefined || v === null || Number.isNaN(v) ? unknown : String(v);
 
   return (
     <div
@@ -228,28 +229,59 @@ export default function FitsViewer({
             ) : !meta ? (
               <div className="hint">{i18n("viewer.loading", lang)}</div>
             ) : (
-              <dl>
-                <dt>{i18n("viewer.metadata.object", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.object ?? i18n("viewer.metadata.unknown", lang)}</dd>
-                <dt>{i18n("viewer.metadata.telescope", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.telescope ?? i18n("viewer.metadata.unknown", lang)}</dd>
-                <dt>{i18n("viewer.metadata.filter", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.filter ?? i18n("viewer.metadata.unknown", lang)}</dd>
-                <dt>{i18n("viewer.metadata.exptime", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{i18n("viewer.metadata.exptime", lang, { value: fmt(meta.exptime) })}</dd>
-                <dt>{i18n("viewer.metadata.dateObs", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.dateObs ?? i18n("viewer.metadata.unknown", lang)}</dd>
-                <dt>{i18n("viewer.metadata.bitpix", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{i18n("viewer.metadata.bitpix", lang, { value: String(meta.bitpix) })}</dd>
-                <dt>{i18n("viewer.metadata.dimensions", lang, { width: 0, height: 0 }).replace(/:\s*$/, "").replace(/0×0$/, "")}</dt>
-                <dd>{i18n("viewer.metadata.dimensions", lang, { width: meta.width, height: meta.height })}</dd>
-                <dt>{i18n("viewer.metadata.min", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.stats.min.toFixed(2)}</dd>
-                <dt>{i18n("viewer.metadata.max", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.stats.max.toFixed(2)}</dd>
-                <dt>{i18n("viewer.metadata.mean", lang, { value: "" }).replace(/:\s*$/, "")}</dt>
-                <dd>{meta.stats.mean.toFixed(2)}</dd>
-              </dl>
+              <ul className="fits-viewer-meta-list">
+                <li>
+                  {i18n("viewer.metadata.object", lang, {
+                    value: meta.object ?? unknown,
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.telescope", lang, {
+                    value: meta.telescope ?? unknown,
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.filter", lang, {
+                    value: meta.filter ?? unknown,
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.exptime", lang, {
+                    value: fmt(meta.exptime),
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.dateObs", lang, {
+                    value: meta.dateObs ?? unknown,
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.bitpix", lang, {
+                    value: String(meta.bitpix),
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.dimensions", lang, {
+                    width: meta.width,
+                    height: meta.height,
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.min", lang, {
+                    value: meta.stats.min.toFixed(2),
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.max", lang, {
+                    value: meta.stats.max.toFixed(2),
+                  })}
+                </li>
+                <li>
+                  {i18n("viewer.metadata.mean", lang, {
+                    value: meta.stats.mean.toFixed(2),
+                  })}
+                </li>
+              </ul>
             )}
           </aside>
         </div>

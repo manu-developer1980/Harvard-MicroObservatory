@@ -47,15 +47,22 @@ export type DriveFile = { path: string; file: string };
  * incluyen los grupos cuyo folderName esté en el Set. Si no se pasa
  * (o es undefined), se incluyen todos los grupos — útil para
  * mantener compatibilidad cuando aún no hay UI de selección.
+ *
+ * Si se pasa `selectedFits` (Set de filenames FITS de tránsito),
+ * solo se incluyen los tránsitos presentes en el Set. Los darks
+ * de los grupos seleccionados se incluyen siempre (no son
+ * visualmente informativos y no se gestionan desde el checklist).
  */
 export function buildAllFiles(
   groups: ReadonlyArray<DateGroupLite>,
   selectedFolderNames?: ReadonlySet<string>,
+  selectedFits?: ReadonlySet<string>,
 ): DriveFile[] {
   const all: DriveFile[] = [];
   for (const g of groups) {
     if (selectedFolderNames && !selectedFolderNames.has(g.folderName)) continue;
     for (const r of g.transit) {
+      if (selectedFits && !selectedFits.has(r.fits)) continue;
       all.push({ path: `${g.folderName}/${r.fits}`, file: r.fits });
     }
     for (const r of g.darks) {

@@ -23,7 +23,6 @@
  */
 import { t as i18n, type Lang } from "@/lib/i18n";
 import type { ImageRecord } from "@/lib/filters";
-import { toDDMMYYYY } from "@/lib/filters";
 
 type ImageChecklistProps = {
   /** Records de tránsito de este grupo (excluye darks; el viewer

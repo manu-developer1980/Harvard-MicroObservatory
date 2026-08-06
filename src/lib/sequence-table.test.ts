@@ -182,6 +182,37 @@ describe("buildAllFiles", () => {
       "20260802/darks/d1.FITS",
     );
   });
+
+  it("con selectedFits: excluye tránsitos no marcados; darks siempre", () => {
+    const files = buildAllFiles(
+      groups,
+      undefined,
+      new Set(["t2.FITS"]),
+    );
+    expect(files).toEqual([
+      { path: "20260802/darks/d1.FITS", file: "d1.FITS" },
+      { path: "20260803/t2.FITS", file: "t2.FITS" },
+    ]);
+  });
+
+  it("con selectedFolderNames + selectedFits: ambas capas de filtro", () => {
+    const files = buildAllFiles(
+      groups,
+      new Set(["20260802"]),
+      new Set(["t1.FITS"]),
+    );
+    expect(files).toEqual([
+      { path: "20260802/t1.FITS", file: "t1.FITS" },
+      { path: "20260802/darks/d1.FITS", file: "d1.FITS" },
+    ]);
+  });
+
+  it("con selectedFits vacío: solo darks de carpetas incluidas", () => {
+    const files = buildAllFiles(groups, new Set(["20260802"]), new Set());
+    expect(files).toEqual([
+      { path: "20260802/darks/d1.FITS", file: "d1.FITS" },
+    ]);
+  });
 });
 
 /**

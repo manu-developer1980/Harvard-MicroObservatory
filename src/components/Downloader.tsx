@@ -827,7 +827,11 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
     // Usamos la selección del usuario (Set de folderNames marcados).
     // Si hay una sola secuencia, el Set contiene su único folderName
     // y buildAllFiles devuelve lo mismo que antes — sin overhead.
-    const allFiles = buildAllFiles(preview.transitByDate, selectedFolderNames);
+    const allFiles = buildAllFiles(
+      preview.transitByDate,
+      selectedFolderNames,
+      selectedFiles,
+    );
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -898,20 +902,68 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   // Se usa para el resumen "Tránsito que pasa filtros" del summary ul.
   const totalFiles = totalTransit + totalDarks;
 
-  // FITS de las secuencias SELECCIONADAS. Es lo que realmente se
-  // descarga/sube cuando el usuario pulsa el botón. Cuando hay una
-  // sola secuencia, selectedFolderNames contiene su único folderName
-  // y este conteo es igual a totalFiles. Cuando hay varias,
-  // refleja la suma de las filas marcadas.
+  // FITS de las secuencias SELECCIONADAS, respetando también el
+  // checklist individual: tránsitos solo si están en selectedFiles;
+  // darks siempre (no se gestionan desde el visor).
   const selectedFilesCount = preview
-    ? preview.transitByDate.reduce(
-        (acc, g) =>
-          selectedFolderNames.has(g.folderName)
-            ? acc + g.transit.length + g.darks.length
-            : acc,
-        0,
-      )
+    ? preview.transitByDate.reduce((acc, g) => {
+        if (!selectedFolderNames.has(g.folderName)) return acc;
+        const transitN = g.transit.filter((r) =>
+          selectedFiles.has(r.fits),
+        ).length;
+        return acc + transitN + g.darks.length;
+      }, 0)
     : 0;
+
+  // Lista navegable del visor: FITS seleccionados en orden de preview,
+  // más el archivo abierto si está desmarcado (para poder "Ver" una
+  // fila no seleccionada sin que el modal se cierre solo).
+  const viewerOrderedFiles: string[] = [];
+  if (preview) {
+    for (const g of preview.transitByDate) {
+      for (const r of g.transit) {
+        if (selectedFiles.has(r.fits) || r.fits === viewerFile) {
+          viewerOrderedFiles.push(r.fits);
+        }
+      }
+    }
+  }
+
+  const handleViewerClose = () => setViewerFile(null);
+
+  const handleViewerPrev = () => {
+    if (!viewerFile) return;
+    const idx = viewerOrderedFiles.indexOf(viewerFile);
+    if (idx > 0) setViewerFile(viewerOrderedFiles[idx - 1]!);
+  };
+
+  const handleViewerNext = () => {
+    if (!viewerFile) return;
+    const idx = viewerOrderedFiles.indexOf(viewerFile);
+    if (idx >= 0 && idx < viewerOrderedFiles.length - 1) {
+      setViewerFile(viewerOrderedFiles[idx + 1]!);
+    }
+  };
+
+  const handleViewerDiscard = (file: string) => {
+    if (!preview) return;
+    const allOrdered: string[] = [];
+    for (const g of preview.transitByDate) {
+      for (const r of g.transit) allOrdered.push(r.fits);
+    }
+    const nextSelected = new Set(selectedFiles);
+    nextSelected.delete(file);
+    const oldNav = allOrdered.filter(
+      (f) => selectedFiles.has(f) || f === file,
+    );
+    const i = oldNav.indexOf(file);
+    const nextFile =
+      oldNav.slice(i + 1).find((f) => nextSelected.has(f)) ??
+      [...oldNav.slice(0, i)].reverse().find((f) => nextSelected.has(f)) ??
+      null;
+    setSelectedFiles(nextSelected);
+    setViewerFile(nextFile);
+  };
 
   // Abre el popup de Google para autorizar `drive.file` scope. Tras
   // éxito, persiste el token (con su expiry) en localStorage y refleja
@@ -965,7 +1017,11 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
         return;
       }
     }
-    const allFiles = buildAllFiles(preview.transitByDate, selectedFolderNames);
+    const allFiles = buildAllFiles(
+      preview.transitByDate,
+      selectedFolderNames,
+      selectedFiles,
+    );
     if (allFiles.length === 0) {
       setErrMsg(i18n("error.noFiles", lang));
       return;
@@ -1596,6 +1652,69 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
                 onSelectNone={() => setSelectedFolderNames(new Set())}
                 lang={lang}
               />
+              <div className="image-checklists">
+                <h3 className="image-checklists-title">
+                  {i18n("imageTable.title", lang)}
+                </h3>
+                {preview.transitByDate.map((g) => {
+                  const dateLabel =
+                    g.sessionCount > 1
+                      ? `${toDDMMYYYY(g.date)}-${g.sessionIndex}`
+                      : toDDMMYYYY(g.date);
+                  const groupSelected = g.transit.filter((r) =>
+                    selectedFiles.has(r.fits),
+                  ).length;
+                  return (
+                    <details
+                      key={g.folderName}
+                      className="image-checklist-details"
+                      open={preview.transitByDate.length === 1}
+                    >
+                      <summary
+                        aria-label={i18n("imageTable.expandAria", lang, {
+                          date: dateLabel,
+                        })}
+                      >
+                        {dateLabel}
+                        {" · "}
+                        {i18n("imageTable.selectedCount", lang, {
+                          selected: groupSelected,
+                          total: g.transit.length,
+                        })}
+                      </summary>
+                      <ImageChecklist
+                        records={g.transit}
+                        folderLabel={g.folderName}
+                        selected={selectedFiles}
+                        onToggle={(fits) => {
+                          setSelectedFiles((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(fits)) next.delete(fits);
+                            else next.add(fits);
+                            return next;
+                          });
+                        }}
+                        onSelectAll={() => {
+                          setSelectedFiles((prev) => {
+                            const next = new Set(prev);
+                            for (const r of g.transit) next.add(r.fits);
+                            return next;
+                          });
+                        }}
+                        onSelectNone={() => {
+                          setSelectedFiles((prev) => {
+                            const next = new Set(prev);
+                            for (const r of g.transit) next.delete(r.fits);
+                            return next;
+                          });
+                        }}
+                        onView={(fits) => setViewerFile(fits)}
+                        lang={lang}
+                      />
+                    </details>
+                  );
+                })}
+              </div>
               <div className="download-actions">
                 <button
                   type="button"
@@ -1939,6 +2058,18 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
               ? i18n("drive.error", lang, { errorMsg: progress.errorMsg ?? "" })
               : i18n("progress.error", lang, { errorMsg: progress.errorMsg ?? "" }))}
         </div>
+      )}
+
+      {viewerFile && (
+        <FitsViewer
+          orderedFiles={viewerOrderedFiles}
+          currentFile={viewerFile}
+          onClose={handleViewerClose}
+          onPrev={handleViewerPrev}
+          onNext={handleViewerNext}
+          onDiscard={handleViewerDiscard}
+          lang={lang}
+        />
       )}
     </div>
   );
