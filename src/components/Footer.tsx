@@ -156,11 +156,7 @@ export default function Footer({ initialLang }: FooterProps = {}) {
             {i18n("footer.credit", lang)} <strong>@manu_astrofoto</strong> 🔭
           </a>
         </p>
-        <div
-          className="bmc-wrap"
-          ref={bmcRef}
-          aria-label="Buy me a coffee"
-        />
+        
       </div>
       <p
         // El template incluye un <a> en el placeholder moLink, así que
@@ -172,6 +168,11 @@ export default function Footer({ initialLang }: FooterProps = {}) {
           }),
         }}
       />
+      <div
+          className="bmc-wrap"
+          ref={bmcRef}
+          aria-label="Buy me a coffee"
+        />
     </footer>
   );
 }
