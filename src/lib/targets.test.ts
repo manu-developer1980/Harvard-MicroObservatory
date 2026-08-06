@@ -28,8 +28,8 @@ import {
 } from "@/lib/targets";
 
 describe("isExoplanet: prefijos básicos del catálogo MO", () => {
-  it('"All ExoPlanets" siempre es exo (comodín)', () => {
-    expect(isExoplanet("All ExoPlanets")).toBe(true);
+  it('"All ExoPlanets" se excluye (no es un target descargable)', () => {
+    expect(isExoplanet("All ExoPlanets")).toBe(false);
   });
 
   it("WASP-2, WASP-67, WASP-80 → exo (prefijo WASP)", () => {

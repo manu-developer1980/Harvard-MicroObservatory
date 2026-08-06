@@ -17,8 +17,7 @@
 
 /**
  * Prefijos que identifican exoplanetas en el catálogo de
- * MicroObservatory. "All ExoPlanets" se trata aparte en
- * `isExoplanet`.
+ * MicroObservatory.
  *
  * IMPORTANTE: añadir aquí un prefijo NO añade el target al
  * desplegable de MO. Solo le dice a nuestro parser que considere
@@ -53,12 +52,13 @@ export const EXO_PREFIXES: readonly string[] = [
 export const EXO_EXACT: readonly string[] = [];
 
 /**
- * Determina si un nombre del desplegable de MO es un exoplaneta.
- * Match por prefijo (startsWith) o match exacto (lista EXO_EXACT).
- * El comodín "All ExoPlanets" se trata aparte.
+ * Determina si un nombre del desplegable de MO es un exoplaneta
+ * concreto. Match por prefijo (startsWith) o match exacto (lista
+ * EXO_EXACT). El comodín de MO "All ExoPlanets" se excluye a
+ * propósito: no es un target descargable.
  */
 export function isExoplanet(name: string): boolean {
-  if (name === "All ExoPlanets") return true;
+  if (name === "All ExoPlanets") return false;
   if (EXO_EXACT.includes(name)) return true;
   return EXO_PREFIXES.some((p) => name.startsWith(p));
 }

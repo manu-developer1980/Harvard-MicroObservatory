@@ -62,14 +62,7 @@ export const GET: APIRoute = async ({ request }) => {
       .map((_, el) => normalizeMoName($(el).text().trim()))
       .get();
     const unique = Array.from(new Set(optionNames));
-    const exo = unique.filter(isExoplanet);
-
-    // "All ExoPlanets" primero, luego alfabético
-    exo.sort((a, b) => {
-      if (a === "All ExoPlanets") return -1;
-      if (b === "All ExoPlanets") return 1;
-      return a.localeCompare(b);
-    });
+    const exo = unique.filter(isExoplanet).sort((a, b) => a.localeCompare(b));
 
     return jsonResponse({
       ok: true,

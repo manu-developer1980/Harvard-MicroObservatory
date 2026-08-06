@@ -720,8 +720,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
   useEffect(() => {
     if (targets.length === 0) return;
     if (targets.includes(target)) return;
-    const next =
-      targets.find((t) => t !== "All ExoPlanets") ?? targets[0];
+    const next = targets[0];
     if (next) setTarget(next);
   }, [targets, target]);
 
