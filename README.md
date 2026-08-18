@@ -17,7 +17,7 @@ Deployed on Netlify. Stack: Astro 5 · React · TypeScript.
 - Pairing lights with same-night Dark-C calibration frames
 - Checking that a session actually covers a predicted transit
 
-This project ports the filtering logic of the Python `download_mo.py` workflow into a single web UI so observers and educators can preview, curate, and export sequences without hand-editing directories.
+This app exists so observers and educators can do that work in one place: preview nights, curate frames, and export ready-to-reduce sequences without downloading whole directories and sorting them by hand.
 
 > Independent community tool. Not an official NASA or Harvard product.
 
