@@ -217,7 +217,7 @@ The app uploads individual FITS into `EXOTIC/<target>/<date>/` (and `.../darks/`
 
 ---
 
-## What’s new in v0.1.0
+## What’s new in v1.0.0
 
 First official release of `mo-downloader-web`.
 
