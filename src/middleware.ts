@@ -68,20 +68,20 @@ const CSP = [
   // hidratación (astro-island custom elements). Endurecer a nonces
   // requeriría render hooks en cada isla. Trade-off aceptado: el
   // scope `drive.file` minimiza el blast radius si hubiera XSS.
-  "script-src 'self' 'unsafe-inline' https://accounts.google.com https://cdnjs.buymeacoffee.com",
+  "script-src 'self' 'unsafe-inline' https://accounts.google.com https://cdnjs.buymeacoffee.com https://www.googletagmanager.com",
   // Estilos: la app usa CSS modules y estilos inline para algunas
   // animaciones del progreso. Permitimos 'unsafe-inline' aquí.
   // fonts.googleapis.com: hoja que inyecta el widget Buy Me a Coffee.
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: blob: https://cdnjs.buymeacoffee.com https://www.buymeacoffee.com",
+  "img-src 'self' data: blob: https://cdnjs.buymeacoffee.com https://www.buymeacoffee.com https://www.google-analytics.com https://www.googletagmanager.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   // Conectividad: API de Drive (subida) y NASA (transit-check) sale
   // desde el cliente, no del servidor.
-  "connect-src 'self' https://www.googleapis.com https://accounts.google.com https://www.buymeacoffee.com https://cdnjs.buymeacoffee.com",
+  "connect-src 'self' https://www.googleapis.com https://accounts.google.com https://www.buymeacoffee.com https://cdnjs.buymeacoffee.com https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://*.google-analytics.com",
   // El popup de OAuth de Google NO es un iframe (es window.open), pero
   // por si en el futuro cambiamos a flow con iframe, lo dejamos
   // permitido solo para accounts.google.com.
-  "frame-src https://accounts.google.com",
+  "frame-src https://accounts.google.com https://www.googletagmanager.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

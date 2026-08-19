@@ -25,6 +25,7 @@ import {
 } from "@/lib/google-drive";
 import ImageChecklist from "@/components/ImageChecklist";
 import FitsViewer from "@/components/FitsViewer";
+import { trackDownloadImages, trackDriveUpload } from "@/lib/analytics";
 
 // Importamos JSZip solo en el cliente (dentro del handler) para que el SSR
 // de Astro no intente evaluar el CJS de jszip (su entry usa `require()`).
@@ -883,6 +884,11 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      trackDownloadImages({
+        target: preview.target,
+        telescope: preview.telescope,
+        fileCount: allFiles.length,
+      });
       setProgress((p) => ({ ...p, phase: "done" }));
     } catch (e) {
       setProgress((p) => ({
@@ -1043,6 +1049,11 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
         (p) => setProgress({ ...p, operation: "drive" }),
       );
       setDriveDoneUrl(rootFolderUrl);
+      trackDriveUpload({
+        target: preview.target,
+        telescope: preview.telescope,
+        fileCount: allFiles.length,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setProgress({
