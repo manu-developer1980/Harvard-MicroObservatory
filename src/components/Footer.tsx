@@ -5,6 +5,10 @@ import {
   setStoredLang,
   type Lang,
 } from "@/lib/i18n";
+import {
+  getStoredConsent,
+  type ConsentState,
+} from "@/lib/consent";
 
 /**
  * Footer de la app. Vive como componente React (no como parte del HTML
@@ -45,6 +49,12 @@ type BmcWindow = Window & {
 const BMC_SCRIPT =
   "https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js";
 const BMC_SLUG = "manu_astrofoto";
+const DEFAULT_CONSENT: ConsentState = {
+  version: 1,
+  functional: false,
+  analytics: false,
+  thirdParty: false,
+};
 
 export default function Footer({ initialLang }: FooterProps = {}) {
   // IMPORTANTE: el initial state debe coincidir EXACTAMENTE con el SSR
@@ -52,6 +62,7 @@ export default function Footer({ initialLang }: FooterProps = {}) {
   // `initialLang` (derivado de Accept-Language en index.astro); aplicamos
   // la preferencia de localStorage en un useEffect posterior al mount.
   const [lang, setLangState] = useState<Lang>(initialLang ?? "en");
+  const [consent, setConsent] = useState<ConsentState>(DEFAULT_CONSENT);
   const bmcRef = useRef<HTMLDivElement | null>(null);
 
   // Tras montar, sincronizamos con la preferencia persistida. Si difiere
@@ -62,6 +73,8 @@ export default function Footer({ initialLang }: FooterProps = {}) {
     if (stored && stored !== lang) {
       setLangState(stored);
     }
+    const storedConsent = getStoredConsent();
+    if (storedConsent) setConsent(storedConsent);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -86,10 +99,25 @@ export default function Footer({ initialLang }: FooterProps = {}) {
     return () => window.removeEventListener("mo:lang", onLang as EventListener);
   }, []);
 
+  useEffect(() => {
+    function onConsent(e: Event) {
+      const ce = e as CustomEvent<ConsentState>;
+      if (ce.detail) setConsent(ce.detail);
+    }
+    window.addEventListener("mo:consent", onConsent as EventListener);
+    return () => window.removeEventListener("mo:consent", onConsent as EventListener);
+  }, []);
+
   // Buy Me a Coffee widget (official script, safe React mount).
   useEffect(() => {
     const host = bmcRef.current;
-    if (!host || host.dataset.bmc === "1") return;
+    if (!host) return;
+    if (!consent.thirdParty) {
+      host.innerHTML = `<a class="bmc-fallback" href="https://www.buymeacoffee.com/${BMC_SLUG}" target="_blank" rel="noopener">Buy me a coffee</a>`;
+      host.dataset.bmc = "0";
+      return;
+    }
+    if (host.dataset.bmc === "1") return;
     host.dataset.bmc = "1";
 
     const render = () => {
@@ -125,7 +153,7 @@ export default function Footer({ initialLang }: FooterProps = {}) {
       bmcRef.current.innerHTML = `<a class="bmc-fallback" href="https://www.buymeacoffee.com/${BMC_SLUG}" target="_blank" rel="noopener">Buy me a coffee</a>`;
     };
     document.body.appendChild(script);
-  }, []);
+  }, [consent.thirdParty]);
 
   return (
     <footer>

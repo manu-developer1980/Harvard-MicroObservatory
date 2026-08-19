@@ -32,6 +32,103 @@ main {
   padding: 2rem 1.5rem 4rem;
 }
 
+.cookie-banner {
+  position: fixed;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1rem 1.1rem;
+  background: rgba(20, 24, 34, 0.98);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+}
+
+.cookie-banner[hidden],
+.cookie-settings[hidden] {
+  display: none !important;
+}
+
+.cookie-banner__content {
+  max-width: 44rem;
+}
+
+.cookie-banner__content strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.95rem;
+}
+
+.cookie-banner__content p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.cookie-options {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+
+.cookie-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.7rem 0.8rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.cookie-option--locked {
+  cursor: default;
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.cookie-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.cookie-option strong {
+  font-size: 0.88rem;
+}
+
+.cookie-option small {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.cookie-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.cookie-settings {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1090;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.85rem;
+  background: rgba(20, 24, 34, 0.94);
+  border-color: var(--border);
+}
+
 footer {
   max-width: 920px;
   margin: 0 auto;
@@ -1482,6 +1579,22 @@ table.dark-debug strong {
 @media (max-width: 600px) {
   .row { grid-template-columns: 1fr; }
   .preview ul { grid-template-columns: 1fr; }
+
+  .cookie-banner {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cookie-banner__actions {
+    width: 100%;
+  }
+
+  .cookie-banner__actions button {
+    flex: 1 1 12rem;
+  }
 
   .fits-viewer {
     height: min(94vh, 100%);

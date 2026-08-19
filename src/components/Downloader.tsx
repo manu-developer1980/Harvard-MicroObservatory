@@ -884,11 +884,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      trackDownloadImages({
-        target: preview.target,
-        telescope: preview.telescope,
-        fileCount: allFiles.length,
-      });
+      trackDownloadImages();
       setProgress((p) => ({ ...p, phase: "done" }));
     } catch (e) {
       setProgress((p) => ({
@@ -1049,11 +1045,7 @@ export default function Downloader({ initialLang }: DownloaderProps = {}) {
         (p) => setProgress({ ...p, operation: "drive" }),
       );
       setDriveDoneUrl(rootFolderUrl);
-      trackDriveUpload({
-        target: preview.target,
-        telescope: preview.telescope,
-        fileCount: allFiles.length,
-      });
+      trackDriveUpload();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setProgress({

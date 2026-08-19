@@ -17,6 +17,7 @@
  */
 import { en } from "./dictionaries/en";
 import { es } from "./dictionaries/es";
+import { hasConsent } from "@/lib/consent";
 
 export type Lang = "en" | "es";
 export const SUPPORTED: Lang[] = ["en", "es"];
@@ -60,6 +61,7 @@ export function getReqLang(request: Request): Lang {
 
 export function getStoredLang(): Lang | null {
   if (typeof localStorage === "undefined") return null;
+  if (!hasConsent("functional")) return null;
   const v = localStorage.getItem(STORAGE_KEY);
   if (v === "en" || v === "es") return v;
   return null;
@@ -68,7 +70,8 @@ export function getStoredLang(): Lang | null {
 export function setStoredLang(lang: Lang): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, lang);
+    if (hasConsent("functional")) localStorage.setItem(STORAGE_KEY, lang);
+    else localStorage.removeItem(STORAGE_KEY);
   } catch {
     /* ignore quota / private mode */
   }

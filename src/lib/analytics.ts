@@ -1,3 +1,5 @@
+import { hasConsent } from "@/lib/consent";
+
 declare global {
   interface Window {
     dataLayer?: Record<string, unknown>[];
@@ -10,34 +12,21 @@ export function trackEvent(
   params?: Record<string, string | number | boolean>,
 ): void {
   if (typeof window === "undefined") return;
+  if (!hasConsent("analytics")) return;
   window.dataLayer = window.dataLayer ?? [];
   window.dataLayer.push({ event, ...params });
 }
 
 /** Fired when the user completes a FITS ZIP download. */
-export function trackDownloadImages(params: {
-  target: string;
-  telescope: string;
-  fileCount: number;
-}): void {
+export function trackDownloadImages(): void {
   trackEvent("download_images", {
     event_name: "Download Images",
-    target: params.target,
-    telescope: params.telescope,
-    file_count: params.fileCount,
   });
 }
 
 /** Fired when the user completes a Google Drive upload. */
-export function trackDriveUpload(params: {
-  target: string;
-  telescope: string;
-  fileCount: number;
-}): void {
+export function trackDriveUpload(): void {
   trackEvent("drive_upload", {
     event_name: "Drive Upload",
-    target: params.target,
-    telescope: params.telescope,
-    file_count: params.fileCount,
   });
 }

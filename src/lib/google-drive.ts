@@ -1,3 +1,5 @@
+import { hasConsent } from "@/lib/consent";
+
 /**
  * Cliente de Google Drive 100% en el navegador.
  *
@@ -73,6 +75,7 @@ export type UploadProgress = {
 
 const TOKEN_KEY = "mo.drive.token";
 const EXPIRY_KEY = "mo.drive.expiry";
+let memoryToken: StoredToken | null = null;
 
 type StoredToken = {
   accessToken: string;
@@ -80,6 +83,7 @@ type StoredToken = {
 };
 
 function readStoredToken(): StoredToken | null {
+  if (!hasConsent("functional")) return memoryToken;
   if (typeof localStorage === "undefined") return null;
   try {
     const accessToken = localStorage.getItem(TOKEN_KEY);
@@ -100,16 +104,20 @@ function readStoredToken(): StoredToken | null {
 }
 
 function writeStoredToken(accessToken: string, expiresInSec: number): void {
+  const expiresAt = Date.now() + expiresInSec * 1000;
+  memoryToken = { accessToken, expiresAt };
+  if (!hasConsent("functional")) return;
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(TOKEN_KEY, accessToken);
-    localStorage.setItem(EXPIRY_KEY, String(Date.now() + expiresInSec * 1000));
+    localStorage.setItem(EXPIRY_KEY, String(expiresAt));
   } catch {
     /* quota / private mode */
   }
 }
 
 function clearStoredToken(): void {
+  memoryToken = null;
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.removeItem(TOKEN_KEY);

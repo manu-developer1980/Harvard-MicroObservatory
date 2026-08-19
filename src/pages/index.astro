@@ -6,11 +6,92 @@ import { t, detectLangFromHeader, type Lang } from "@/lib/i18n";
 
 const acceptLang = Astro.request.headers.get("accept-language");
 const lang: Lang = detectLangFromHeader(acceptLang);
+const cookieCopy =
+  lang === "es"
+    ? {
+        title: "Preferencias de privacidad",
+        body:
+          "Puedes decidir qué categorías opcionales activar. Las necesarias siempre están activas; la analítica, Google Drive persistente y el widget de apoyo se cargan solo con tu permiso.",
+        save: "Guardar preferencias",
+        acceptAll: "Aceptar todo",
+        rejectAll: "Rechazar opcionales",
+        settings: "Privacidad",
+        necessary: "Necesarias",
+        necessaryDesc:
+          "Mantienen el consentimiento y el funcionamiento básico de la interfaz.",
+        functional: "Funcionales",
+        functionalDesc:
+          "Guardan preferencias como el idioma y la sesión temporal de Google Drive.",
+        analytics: "Analíticas",
+        analyticsDesc:
+          "Permiten Google Tag Manager y Google Analytics para medir uso, descargas y subidas.",
+        thirdParty: "Terceros y soporte",
+        thirdPartyDesc:
+          "Cargan el widget de Buy Me a Coffee y otros embeds opcionales de terceros.",
+      }
+    : {
+        title: "Privacy preferences",
+        body:
+          "You can choose which optional categories to enable. Necessary storage stays on; analytics, persistent Google Drive session, and the support widget load only with your permission.",
+        save: "Save preferences",
+        acceptAll: "Accept all",
+        rejectAll: "Reject optional",
+        settings: "Privacy",
+        necessary: "Necessary",
+        necessaryDesc:
+          "Keeps consent and the basic interface working.",
+        functional: "Functional",
+        functionalDesc:
+          "Stores preferences such as language and the temporary Google Drive session.",
+        analytics: "Analytics",
+        analyticsDesc:
+          "Enables Google Tag Manager and Google Analytics to measure usage, downloads, and uploads.",
+        thirdParty: "Third-party and support",
+        thirdPartyDesc:
+          "Loads the Buy Me a Coffee widget and other optional third-party embeds.",
+      };
 ---
 <!doctype html>
 <html lang={lang}>
   <head>
     <meta charset="utf-8" />
+    <script is:inline>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      var consentDefaults = {
+        version: 1,
+        functional: false,
+        analytics: false,
+        thirdParty: false
+      };
+      function readConsent() {
+        try {
+          var raw = localStorage.getItem('mo.cookie-consent');
+          if (!raw) return null;
+          var parsed = JSON.parse(raw);
+          if (!parsed || parsed.version !== 1) return null;
+          return parsed;
+        } catch {
+          return null;
+        }
+      }
+      gtag('consent', 'default', {
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        analytics_storage: 'denied',
+        wait_for_update: 500
+      });
+      var savedConsent = readConsent() || consentDefaults;
+      if (savedConsent.analytics) {
+        gtag('consent', 'update', {
+          ad_storage: 'denied',
+          ad_user_data: 'denied',
+          ad_personalization: 'denied',
+          analytics_storage: 'granted'
+        });
+      }
+    </script>
     <!-- Google Tag Manager -->
     <script is:inline>
       (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -29,16 +110,68 @@ const lang: Lang = detectLangFromHeader(acceptLang);
     />
   </head>
   <body>
-    <!-- Google Tag Manager (noscript) -->
-    <noscript>
-      <iframe
-        src="https://www.googletagmanager.com/ns.html?id=GTM-5WNVLMCF"
-        height="0"
-        width="0"
-        style="display:none;visibility:hidden"
-      ></iframe>
-    </noscript>
-    <!-- End Google Tag Manager (noscript) -->
+    <aside
+      id="cookie-banner"
+      class="cookie-banner"
+      aria-live="polite"
+      aria-label={cookieCopy.title}
+      hidden
+    >
+      <div class="cookie-banner__content">
+        <strong>{cookieCopy.title}</strong>
+        <p>{cookieCopy.body}</p>
+        <div class="cookie-options">
+          <label class="cookie-option cookie-option--locked">
+            <input type="checkbox" checked disabled />
+            <span>
+              <strong>{cookieCopy.necessary}</strong>
+              <small>{cookieCopy.necessaryDesc}</small>
+            </span>
+          </label>
+          <label class="cookie-option">
+            <input type="checkbox" id="cookie-functional" data-cookie-field="functional" />
+            <span>
+              <strong>{cookieCopy.functional}</strong>
+              <small>{cookieCopy.functionalDesc}</small>
+            </span>
+          </label>
+          <label class="cookie-option">
+            <input type="checkbox" id="cookie-analytics" data-cookie-field="analytics" />
+            <span>
+              <strong>{cookieCopy.analytics}</strong>
+              <small>{cookieCopy.analyticsDesc}</small>
+            </span>
+          </label>
+          <label class="cookie-option">
+            <input type="checkbox" id="cookie-third-party" data-cookie-field="thirdParty" />
+            <span>
+              <strong>{cookieCopy.thirdParty}</strong>
+              <small>{cookieCopy.thirdPartyDesc}</small>
+            </span>
+          </label>
+        </div>
+      </div>
+      <div class="cookie-banner__actions">
+        <button type="button" class="primary" data-cookie-action="save">
+          {cookieCopy.save}
+        </button>
+        <button type="button" data-cookie-action="accept-all">
+          {cookieCopy.acceptAll}
+        </button>
+        <button type="button" data-cookie-action="reject-all">
+          {cookieCopy.rejectAll}
+        </button>
+      </div>
+    </aside>
+    <button
+      id="cookie-settings"
+      class="cookie-settings"
+      type="button"
+      aria-label={cookieCopy.settings}
+      hidden
+    >
+      {cookieCopy.settings}
+    </button>
     <main>
       <Downloader client:load initialLang={lang} />
     </main>
@@ -49,5 +182,136 @@ const lang: Lang = detectLangFromHeader(acceptLang);
       navegador y nunca cambiaría.
     -->
     <Footer client:load initialLang={lang} />
+    <script is:inline>
+      (function () {
+        var STORAGE_KEY = 'mo.cookie-consent';
+        var DEFAULTS = {
+          version: 1,
+          functional: false,
+          analytics: false,
+          thirdParty: false
+        };
+        var banner = document.getElementById('cookie-banner');
+        var settings = document.getElementById('cookie-settings');
+        var functional = document.getElementById('cookie-functional');
+        var analytics = document.getElementById('cookie-analytics');
+        var thirdParty = document.getElementById('cookie-third-party');
+        if (!banner || !settings) return;
+
+        function readConsent() {
+          try {
+            var raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            var parsed = JSON.parse(raw);
+            if (!parsed || parsed.version !== 1) return null;
+            return parsed;
+          } catch {
+            return null;
+          }
+        }
+
+        function gtagConsent(state) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){window.dataLayer.push(arguments);}
+          gtag('consent', 'update', {
+            ad_storage: 'denied',
+            ad_user_data: 'denied',
+            ad_personalization: 'denied',
+            analytics_storage: state.analytics ? 'granted' : 'denied'
+          });
+        }
+
+        function applyUi(state) {
+          if (functional instanceof HTMLInputElement) {
+            functional.checked = !!state.functional;
+          }
+          if (analytics instanceof HTMLInputElement) {
+            analytics.checked = !!state.analytics;
+          }
+          if (thirdParty instanceof HTMLInputElement) {
+            thirdParty.checked = !!state.thirdParty;
+          }
+        }
+
+        function setVisibility(hasDecision) {
+          banner.hidden = hasDecision;
+          settings.hidden = !hasDecision;
+        }
+
+        function clearAnalyticsCookies() {
+          var cookies = document.cookie ? document.cookie.split(';') : [];
+          for (var i = 0; i < cookies.length; i++) {
+            var name = cookies[i].split('=')[0]?.trim();
+            if (!name || !/^_ga($|_)/.test(name)) continue;
+            document.cookie = name + '=; Max-Age=0; path=/; SameSite=Lax';
+            document.cookie = name + '=; Max-Age=0; path=/; domain=' + location.hostname + '; SameSite=Lax';
+          }
+        }
+
+        function clearFunctionalStorage() {
+          try {
+            localStorage.removeItem('mo.lang');
+            localStorage.removeItem('mo.drive.token');
+            localStorage.removeItem('mo.drive.expiry');
+          } catch {
+            /* ignore storage errors */
+          }
+        }
+
+        function notify(state) {
+          window.dispatchEvent(new CustomEvent('mo:consent', { detail: state }));
+        }
+
+        function collectState() {
+          return {
+            version: 1,
+            functional: functional instanceof HTMLInputElement ? functional.checked : false,
+            analytics: analytics instanceof HTMLInputElement ? analytics.checked : false,
+            thirdParty: thirdParty instanceof HTMLInputElement ? thirdParty.checked : false
+          };
+        }
+
+        function save(state) {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          } catch {
+            /* ignore storage errors */
+          }
+          gtagConsent(state);
+          if (!state.analytics) clearAnalyticsCookies();
+          if (!state.functional) clearFunctionalStorage();
+          notify(state);
+          applyUi(state);
+          setVisibility(true);
+        }
+
+        var saved = readConsent();
+        applyUi(saved || DEFAULTS);
+        if (saved && !saved.analytics) clearAnalyticsCookies();
+        if (saved && !saved.functional) clearFunctionalStorage();
+        setVisibility(!!saved);
+
+        banner.addEventListener('click', function (event) {
+          var target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          var action = target.dataset.cookieAction;
+          if (action === 'save') save(collectState());
+          if (action === 'accept-all') {
+            save({
+              version: 1,
+              functional: true,
+              analytics: true,
+              thirdParty: true
+            });
+          }
+          if (action === 'reject-all') save(DEFAULTS);
+        });
+
+        settings.addEventListener('click', function () {
+          banner.hidden = false;
+          settings.hidden = true;
+        });
+      })();
+    </script>
   </body>
 </html>
